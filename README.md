@@ -6,7 +6,7 @@ Plateforme **microservices** de gestion d'incidents et de demandes clients (type
 
 ## 🚧 Statut
 
-En cours de développement — **Étapes 1 à 3 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications)
+En cours de développement — **Étapes 1 à 4 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox)
 
 ## 🏗️ Architecture
 
@@ -19,11 +19,11 @@ flowchart LR
     GW -->|lb://notification-service| NS[Notification Service]
 
     TS -->|OpenFeign : client existe ?| US
-    TS -->|publie ticket-events| K[(Kafka)]
+    TS --> TDB[(MariaDB<br/>ticket_db<br/>+ outbox_events)]
+    TDB -->|Outbox Relay| K[(Kafka<br/>ticket-events)]
     K -->|consomme| NS
 
     US --> UDB[(MariaDB<br/>user_db)]
-    TS --> TDB[(MariaDB<br/>ticket_db)]
     NS --> NDB[(MariaDB<br/>notification_db)]
 
     CS[Config Server] -. configuration .-> US
@@ -44,7 +44,7 @@ flowchart LR
 | `discovery-server` | Annuaire des services (Eureka) | 8761 |
 | `api-gateway` | Point d'entrée unique, routage | 8087 |
 | `user-service` | Gestion des clients et agents | 8081 |
-| `ticket-service` | Gestion des tickets, publication d'événements Kafka | 8082 |
+| `ticket-service` | Gestion des tickets, publication d'événements via Outbox | 8082 |
 | `notification-service` | Notifications clients (consumer Kafka idempotent) | 8083 |
 | `kafka` | Broker de messages (mode KRaft, sans Zookeeper) | 9092 |
 | `kafka-ui` | Interface web pour Kafka | 8090 |
@@ -53,7 +53,8 @@ flowchart LR
 - **Database per Service** : chaque service possède sa propre base MariaDB.
 - **Communication synchrone** (OpenFeign) quand une réponse immédiate est nécessaire : ticket-service vérifie que le client existe et a le rôle `CLIENT`.
 - **Communication asynchrone** (Kafka) pour découpler les services : la création d'un ticket ne dépend pas de la disponibilité du service de notifications.
-- **Idempotence** : chaque événement porte un `eventId` unique, notification-service ignore les doublons.
+- **Transactional Outbox** : le ticket et son événement sont écrits dans la **même transaction** (table `outbox_events`). Un relay planifié publie ensuite vers Kafka : aucun événement perdu, même si Kafka est indisponible.
+- **Idempotence** : la livraison est *at-least-once*, donc chaque événement porte un `eventId` unique et notification-service ignore les doublons.
 
 ## 🔄 Flux : création d'un ticket
 
@@ -63,6 +64,8 @@ sequenceDiagram
     participant GW as API Gateway
     participant TS as Ticket Service
     participant US as User Service
+    participant DB as ticket_db
+    participant R as Outbox Relay
     participant K as Kafka
     participant NS as Notification Service
 
@@ -70,9 +73,13 @@ sequenceDiagram
     GW->>TS: route
     TS->>US: GET /api/users/{clientId} (OpenFeign)
     US-->>TS: rôle CLIENT ✅
-    TS->>TS: save ticket (OPEN)
-    TS->>K: TICKET_CREATED (clé = ticketId)
+    TS->>DB: BEGIN · INSERT ticket + INSERT outbox_event · COMMIT
     TS-->>C: 201 Created
+    loop toutes les 2 s
+        R->>DB: événements non envoyés ?
+        R->>K: TICKET_CREATED (clé = ticketId)
+        R->>DB: marquer sent_at
+    end
     K->>NS: TICKET_CREATED
     NS->>NS: eventId déjà traité ? sinon save + notifier
 ```
@@ -149,7 +156,7 @@ POST /api/tickets
 - [x] **1. MVP** : User, Ticket, Gateway, Eureka, Docker Compose
 - [x] **2. Config Server + OpenFeign** : configuration centralisée, profil docker, validation du client
 - [x] **3. Kafka + Notification Service** : événements `ticket-events`, consumer idempotent
-- [ ] 4. Outbox pattern
+- [x] **4. Transactional Outbox** : plus de *dual write*, événements garantis même si Kafka tombe
 - [ ] 5. Sécurité avec Keycloak (OAuth2 / JWT)
 - [ ] 6. Saga Camunda avec compensation + escalade SLA
 - [ ] 7. Resilience4j + Zipkin

@@ -2,6 +2,7 @@ package com.ticketflow.ticketservice.service;
 
 import com.ticketflow.ticketservice.client.UserClient;
 import com.ticketflow.ticketservice.dto.UserResponse;
+import com.ticketflow.ticketservice.event.TicketEventPublisher;
 import com.ticketflow.ticketservice.model.Ticket;
 import com.ticketflow.ticketservice.model.TicketStatus;
 import com.ticketflow.ticketservice.repository.TicketRepository;
@@ -18,6 +19,8 @@ import java.util.List;
 public class TicketService {
     private final TicketRepository ticketRepository;
     private final UserClient userClient;
+
+    private final TicketEventPublisher eventPublisher;  //après avoir ajouté kafka pour la notification
 
     public List<Ticket> findAll(){
         return ticketRepository.findAll();
@@ -36,19 +39,27 @@ public class TicketService {
         try {
             UserResponse user = userClient.getUserById(ticket.getClientId());
             if (!"CLIENT".equals(user.role())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User " + user.id() + " is not a CLIENT");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "User " + user.id() + " is not a CLIENT");
             }
         } catch (FeignException.NotFound e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Client not found: " + ticket.getClientId());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Client not found: " + ticket.getClientId());
         }
-        return ticketRepository.save(ticket);
+
+        Ticket saved = ticketRepository.save(ticket);           // 1. sauvegarde
+        eventPublisher.publish("TICKET_CREATED", saved);   // 2. publie l'événement
+        return saved;                                                 // 3. renvoie le ticket
     }
 
     public Ticket updateStatus(Long id, TicketStatus status){
         Ticket ticket = findById(id);   //retrieve the ticket
         ticket.setStatus(status);   //modify the ticket's status
-        return ticketRepository.save(ticket);
+        Ticket saved = ticketRepository.save(ticket);           // 1. sauvegarde
+        eventPublisher.publish("STATUS_CHANGED", saved);   // 2. publie l'événement
+        return saved;                                                 // 3. renvoie le ticket
     }
+
 
     public void delete(Long id){
         ticketRepository.deleteById(id);

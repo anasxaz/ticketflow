@@ -1,10 +1,15 @@
 package com.ticketflow.ticketservice.service;
 
+import com.ticketflow.ticketservice.client.UserClient;
+import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.model.Ticket;
 import com.ticketflow.ticketservice.model.TicketStatus;
 import com.ticketflow.ticketservice.repository.TicketRepository;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -12,6 +17,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TicketService {
     private final TicketRepository ticketRepository;
+    private final UserClient userClient;
 
     public List<Ticket> findAll(){
         return ticketRepository.findAll();
@@ -19,10 +25,22 @@ public class TicketService {
 
     public Ticket findById(Long id){
         return ticketRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Ticket not found : "+id));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"Ticket not found : "+id));
     }
 
-    public Ticket create(Ticket ticket){
+//    public Ticket create(Ticket ticket){
+//        return ticketRepository.save(ticket);
+//    }
+
+    public Ticket create(Ticket ticket) {
+        try {
+            UserResponse user = userClient.getUserById(ticket.getClientId());
+            if (!"CLIENT".equals(user.role())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User " + user.id() + " is not a CLIENT");
+            }
+        } catch (FeignException.NotFound e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Client not found: " + ticket.getClientId());
+        }
         return ticketRepository.save(ticket);
     }
 

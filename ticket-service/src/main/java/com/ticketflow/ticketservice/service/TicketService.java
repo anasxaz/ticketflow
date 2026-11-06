@@ -10,6 +10,7 @@ import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -35,6 +36,7 @@ public class TicketService {
 //        return ticketRepository.save(ticket);
 //    }
 
+    @Transactional
     public Ticket create(Ticket ticket) {
         try {
             UserResponse user = userClient.getUserById(ticket.getClientId());
@@ -52,6 +54,7 @@ public class TicketService {
         return saved;                                                 // 3. renvoie le ticket
     }
 
+    @Transactional
     public Ticket updateStatus(Long id, TicketStatus status){
         Ticket ticket = findById(id);   //retrieve the ticket
         ticket.setStatus(status);   //modify the ticket's status

@@ -1,0 +1,55 @@
+{
+  "realm": "ticketflow",
+  "enabled": true,
+  "accessTokenLifespan": 1800,
+  "roles": {
+    "realm": [
+      {
+        "name": "CLIENT",
+        "description": "Client : crée des tickets et consulte ses notifications"
+      },
+      {
+        "name": "AGENT",
+        "description": "Agent support : traite les tickets et gère les utilisateurs"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "ticketflow-app",
+      "name": "TicketFlow App",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["*"],
+      "webOrigins": ["*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "youssef",
+      "enabled": true,
+      "email": "youssef@test.com",
+      "emailVerified": true,
+      "firstName": "Youssef",
+      "lastName": "Client",
+      "credentials": [
+        { "type": "password", "value": "youssef123", "temporary": false }
+      ],
+      "realmRoles": ["CLIENT"]
+    },
+    {
+      "username": "anas",
+      "enabled": true,
+      "email": "anas@test.com",
+      "emailVerified": true,
+      "firstName": "Anas",
+      "lastName": "Agent",
+      "credentials": [
+        { "type": "password", "value": "anas123", "temporary": false }
+      ],
+      "realmRoles": ["AGENT"]
+    }
+  ]
+}

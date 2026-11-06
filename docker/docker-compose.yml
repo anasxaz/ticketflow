@@ -117,6 +117,19 @@ services:
       interval: 10s
       retries: 5
 
+  notification-db:
+    image: mariadb:11
+    container_name: notification-db
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: notification_db
+    ports: ["3309:3306"]
+    volumes: [notification-db-data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      retries: 5    
+
   # ---------- Infrastructure ----------
   config-server:
     build: ../config-server
@@ -188,3 +201,4 @@ services:
 volumes:
   user-db-data:
   ticket-db-data:
+  notification-db-data:  

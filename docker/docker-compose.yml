@@ -16,6 +16,79 @@
 #       MYSQL_DATABASE: ticket_db
 #     ports:
 #       - "3308:3306"
+
+#Après avoir testé les services indépendamment, on peut les intégrer dans un docker-compose global pour lancer tous les services en même temps
+# services:
+#   # ---------- Bases de données ----------
+#   user-db:
+#     image: mariadb:11
+#     container_name: user-db
+#     environment:
+#       MARIADB_ROOT_PASSWORD: root
+#       MARIADB_DATABASE: user_db
+#     ports: ["3307:3306"]
+#     healthcheck:
+#       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+#       interval: 10s
+#       retries: 5
+
+#   ticket-db:
+#     image: mariadb:11
+#     container_name: ticket-db
+#     environment:
+#       MARIADB_ROOT_PASSWORD: root
+#       MARIADB_DATABASE: ticket_db
+#     ports: ["3308:3306"]
+#     healthcheck:
+#       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+#       interval: 10s
+#       retries: 5
+
+#   # ---------- Eureka ----------
+#   discovery-server:
+#     build: ../discovery-server
+#     container_name: discovery-server
+#     ports: ["8761:8761"]
+
+#   # ---------- Services ----------
+#   user-service:
+#     build: ../user-service
+#     container_name: user-service
+#     environment:
+#       SPRING_DATASOURCE_URL: jdbc:mariadb://user-db:3306/user_db
+#       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+#       EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+#     depends_on:
+#       user-db: { condition: service_healthy }
+#       discovery-server: { condition: service_started }
+
+#   ticket-service:
+#     build: ../ticket-service
+#     container_name: ticket-service
+#     environment:
+#       SPRING_DATASOURCE_URL: jdbc:mariadb://ticket-db:3306/ticket_db
+#       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+#       EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+#     depends_on:
+#       ticket-db: { condition: service_healthy }
+#       discovery-server: { condition: service_started }
+
+#   api-gateway:
+#     build: ../api-gateway
+#     container_name: api-gateway
+#     ports: ["8087:8087"]
+#     environment:
+#       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+#       EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+#     depends_on:
+#       - discovery-server
+#       - user-service
+#       - ticket-service
+#Donc après cette 2ème configuration, les variables d'environnement sont écrasent ceux qui sont définis dans appliation.properties
+#Et maintenant seuls Eureka et la Gateway sont exposés à l'extérieur, les services et les BDs ne le sont pas!      
+
+
+#Après avoir intégrer OpenFeign, on peut ajouter le config-server dans le docker-compose global pour lancer tous les services en même temps
 services:
   # ---------- Bases de données ----------
   user-db:
@@ -25,6 +98,7 @@ services:
       MARIADB_ROOT_PASSWORD: root
       MARIADB_DATABASE: user_db
     ports: ["3307:3306"]
+    volumes: [user-db-data:/var/lib/mysql]
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -37,12 +111,18 @@ services:
       MARIADB_ROOT_PASSWORD: root
       MARIADB_DATABASE: ticket_db
     ports: ["3308:3306"]
+    volumes: [ticket-db-data:/var/lib/mysql]
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       retries: 5
 
-  # ---------- Eureka ----------
+  # ---------- Infrastructure ----------
+  config-server:
+    build: ../config-server
+    container_name: config-server
+    ports: ["8888:8888"]
+
   discovery-server:
     build: ../discovery-server
     container_name: discovery-server
@@ -52,35 +132,33 @@ services:
   user-service:
     build: ../user-service
     container_name: user-service
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mariadb://user-db:3306/user_db
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
-      EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+    environment: &client-env         
+      SPRING_PROFILES_ACTIVE: docker
+      CONFIG_SERVER_URL: http://config-server:8888
+    restart: on-failure
     depends_on:
       user-db: { condition: service_healthy }
+      config-server: { condition: service_started }
       discovery-server: { condition: service_started }
 
   ticket-service:
     build: ../ticket-service
     container_name: ticket-service
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mariadb://ticket-db:3306/ticket_db
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
-      EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+    environment: *client-env         
+    restart: on-failure
     depends_on:
       ticket-db: { condition: service_healthy }
+      config-server: { condition: service_started }
       discovery-server: { condition: service_started }
 
   api-gateway:
     build: ../api-gateway
     container_name: api-gateway
     ports: ["8087:8087"]
-    environment:
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
-      EUREKA_INSTANCE_PREFERIPADDRESS: "true"
-    depends_on:
-      - discovery-server
-      - user-service
-      - ticket-service
-#Donc après cette 2ème configuration, les variables d'environnement sont écrasent ceux qui sont définis dans appliation.properties
-#Et maintenant seuls Eureka et la Gateway sont exposés à l'extérieur, les services et les BDs ne le sont pas!      
+    environment: *client-env       
+    restart: on-failure
+    depends_on: [config-server, discovery-server, user-service, ticket-service]
+
+volumes:
+  user-db-data:
+  ticket-db-data:

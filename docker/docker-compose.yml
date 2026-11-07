@@ -85,6 +85,30 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
     ports: ["8180:8080"]
     volumes: ["./keycloak:/opt/keycloak/data/import"]
+
+  camunda:
+    image: camunda/camunda:8.9.19
+    container_name: camunda
+    ports:
+      - "8088:8080"     # UI (Operate, Tasklist) + API REST — 8080 pris par Jenkins
+      - "26500:26500"   # API gRPC (utilisée par le starter Spring)
+    environment:
+      # stockage secondaire léger (H2 dans un fichier, dans le dossier data de l'image)
+      CAMUNDA_DATA_SECONDARY_STORAGE_TYPE: rdbms
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_URL: jdbc:h2:file:/usr/local/camunda/data/h2db
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_USERNAME: sa
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_PASSWORD: ""
+      # dev local : API sans auth + user demo/demo pour l'interface
+      CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI: "true"
+      CAMUNDA_SECURITY_AUTHORIZATIONS_ENABLED: "false"
+      CAMUNDA_SECURITY_INITIALIZATION_USERS_0_USERNAME: demo
+      CAMUNDA_SECURITY_INITIALIZATION_USERS_0_PASSWORD: demo
+      CAMUNDA_SECURITY_INITIALIZATION_USERS_0_NAME: Demo
+      CAMUNDA_SECURITY_INITIALIZATION_USERS_0_EMAIL: demo@demo.com
+      CAMUNDA_SECURITY_INITIALIZATION_DEFAULTROLES_ADMIN_USERS_0: demo
+    volumes:
+      - camunda-data:/usr/local/camunda/data
+
   # ---------- Services ----------
   user-service:
     build: ../user-service
@@ -132,3 +156,4 @@ volumes:
   user-db-data:
   ticket-db-data:
   notification-db-data:
+  camunda-data:

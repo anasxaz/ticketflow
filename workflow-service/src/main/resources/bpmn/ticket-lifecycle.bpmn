@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  xmlns:modeler="http://camunda.org/schema/modeler/1.0"
+                  id="Definitions_TicketFlow"
+                  targetNamespace="http://ticketflow.com/bpmn"
+                  exporter="Camunda Modeler"
+                  modeler:executionPlatform="Camunda Cloud"
+                  modeler:executionPlatformVersion="8.9.0">
+
+  <bpmn:process id="ticket-lifecycle" name="Cycle de vie d'un ticket" isExecutable="true">
+
+    <bpmn:startEvent id="StartEvent_TicketCreated" name="Ticket créé">
+      <bpmn:outgoing>Flow_ToAssign</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_AssignAgent" name="Assigner un agent">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="assign-agent" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ToAssign</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEnd</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndEvent_Done" name="Terminé">
+      <bpmn:incoming>Flow_ToEnd</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_ToAssign" sourceRef="StartEvent_TicketCreated" targetRef="Task_AssignAgent" />
+    <bpmn:sequenceFlow id="Flow_ToEnd" sourceRef="Task_AssignAgent" targetRef="EndEvent_Done" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="ticket-lifecycle">
+      <bpmndi:BPMNShape id="Shape_Start" bpmnElement="StartEvent_TicketCreated">
+        <dc:Bounds x="152" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="142" y="145" width="57" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Assign" bpmnElement="Task_AssignAgent">
+        <dc:Bounds x="250" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End" bpmnElement="EndEvent_Done">
+        <dc:Bounds x="432" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="429" y="145" width="42" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_ToAssign" bpmnElement="Flow_ToAssign">
+        <di:waypoint x="188" y="120" />
+        <di:waypoint x="250" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToEnd" bpmnElement="Flow_ToEnd">
+        <di:waypoint x="370" y="120" />
+        <di:waypoint x="432" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

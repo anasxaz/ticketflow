@@ -37,5 +37,10 @@ public class UserController {
         userService.delete(id);
     }
 
+    @GetMapping("/by-email")
+    public User getByEmail(@RequestParam String email) {
+        return userService.findByEmail(email);
+    }
+
 
 }

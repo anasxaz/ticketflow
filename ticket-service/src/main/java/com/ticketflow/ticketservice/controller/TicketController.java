@@ -1,5 +1,6 @@
 package com.ticketflow.ticketservice.controller;
 
+import com.ticketflow.ticketservice.dto.CreateTicketRequest;
 import com.ticketflow.ticketservice.model.Ticket;
 import com.ticketflow.ticketservice.model.TicketStatus;
 import com.ticketflow.ticketservice.repository.TicketRepository;
@@ -30,10 +31,17 @@ public class TicketController {
         return ticketService.findById(id);
     }
 
+//    @PostMapping
+//    @ResponseStatus(HttpStatus.CREATED)
+//    public Ticket create(@Valid @RequestBody Ticket ticket){
+//        return ticketService.create(ticket);
+//    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Ticket create(@Valid @RequestBody Ticket ticket){
-        return ticketService.create(ticket);
+    public Ticket create(@Valid @RequestBody CreateTicketRequest request,
+                         @RequestHeader("X-User-Email") String email) {
+        return ticketService.create(request, email);
     }
 
     @PatchMapping("/{id}/status")

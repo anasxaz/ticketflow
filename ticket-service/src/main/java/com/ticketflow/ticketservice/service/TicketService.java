@@ -1,6 +1,7 @@
 package com.ticketflow.ticketservice.service;
 
 import com.ticketflow.ticketservice.client.UserClient;
+import com.ticketflow.ticketservice.dto.CreateTicketRequest;
 import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.event.TicketEventPublisher;
 import com.ticketflow.ticketservice.model.Ticket;
@@ -36,22 +37,45 @@ public class TicketService {
 //        return ticketRepository.save(ticket);
 //    }
 
+//    @Transactional
+//    public Ticket create(Ticket ticket) {
+//        try {
+//            UserResponse user = userClient.getUserById(ticket.getClientId());
+//            if (!"CLIENT".equals(user.role())) {
+//                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+//                        "User " + user.id() + " is not a CLIENT");
+//            }
+//        } catch (FeignException.NotFound e) {
+//            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+//                    "Client not found: " + ticket.getClientId());
+//        }
+//
+//        Ticket saved = ticketRepository.save(ticket);           // 1. sauvegarde
+//        eventPublisher.publish("TICKET_CREATED", saved);   // 2. publie l'événement
+//        return saved;                                                 // 3. renvoie le ticket
+//    }
+
     @Transactional
-    public Ticket create(Ticket ticket) {
+    public Ticket create(CreateTicketRequest request, String email) {
+        UserResponse user;
         try {
-            UserResponse user = userClient.getUserById(ticket.getClientId());
-            if (!"CLIENT".equals(user.role())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "User " + user.id() + " is not a CLIENT");
-            }
+            user = userClient.getUserByEmail(email);
         } catch (FeignException.NotFound e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Client not found: " + ticket.getClientId());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No user profile for " + email);
+        }
+        if (!"CLIENT".equals(user.role())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "User " + user.id() + " is not a CLIENT");
         }
 
-        Ticket saved = ticketRepository.save(ticket);           // 1. sauvegarde
-        eventPublisher.publish("TICKET_CREATED", saved);   // 2. publie l'événement
-        return saved;                                                 // 3. renvoie le ticket
+        Ticket ticket = new Ticket();
+        ticket.setTitle(request.title());
+        ticket.setDescription(request.description());
+        ticket.setPriority(request.priority());
+        ticket.setClientId(user.id());               // 👈 vient du TOKEN, pas du body
+
+        Ticket saved = ticketRepository.save(ticket);
+        eventPublisher.publish("TICKET_CREATED", saved);
+        return saved;
     }
 
     @Transactional

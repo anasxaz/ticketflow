@@ -4,6 +4,7 @@ import com.ticketflow.workflowservice.client.TicketClient;
 import com.ticketflow.workflowservice.client.UserClient;
 import io.camunda.client.annotation.JobWorker;
 import io.camunda.client.annotation.Variable;
+import io.camunda.client.exception.CamundaError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -23,7 +24,10 @@ public class AssignAgentWorker {
     @JobWorker(type = "assign-agent")
     public Map<String, Object> assignAgent(@Variable Long ticketId) {
         List<UserClient.UserResponse> agents = userClient.getAgents();
-        if (agents.isEmpty()) throw new IllegalStateException("No agent available");
+        //if (agents.isEmpty()) throw new IllegalStateException("No agent available");
+        if (agents.isEmpty()) {
+            throw CamundaError.bpmnError("NO_AGENT", "Aucun agent disponible");
+        }
 
         var agent = agents.get(ThreadLocalRandom.current().nextInt(agents.size()));
         ticketClient.assign(ticketId, Map.of("agentId", agent.id()));

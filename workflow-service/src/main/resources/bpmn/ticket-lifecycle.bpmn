@@ -26,6 +26,24 @@
       <bpmn:outgoing>Flow_ToWait</bpmn:outgoing>
     </bpmn:serviceTask>
 
+    <!-- Saga : si aucun agent n'est disponible → compensation -->
+    <bpmn:boundaryEvent id="Error_NoAgentBoundary" name="Aucun agent" attachedToRef="Task_AssignAgent">
+      <bpmn:outgoing>Flow_ToReject</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_NoAgent" errorRef="Error_NoAgent" />
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="Task_Reject" name="Rejeter le ticket">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="reject-ticket" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ToReject</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToRejected</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndEvent_Rejected" name="Rejeté">
+      <bpmn:incoming>Flow_ToRejected</bpmn:incoming>
+    </bpmn:endEvent>
+
     <bpmn:receiveTask id="Task_WaitResolution" name="Attendre la résolution" messageRef="Message_TicketResolved">
       <bpmn:incoming>Flow_ToWait</bpmn:incoming>
       <bpmn:outgoing>Flow_ToResolved</bpmn:outgoing>
@@ -56,6 +74,8 @@
 
     <bpmn:sequenceFlow id="Flow_ToAssign" sourceRef="StartEvent_TicketCreated" targetRef="Task_AssignAgent" />
     <bpmn:sequenceFlow id="Flow_ToWait" sourceRef="Task_AssignAgent" targetRef="Task_WaitResolution" />
+    <bpmn:sequenceFlow id="Flow_ToReject" sourceRef="Error_NoAgentBoundary" targetRef="Task_Reject" />
+    <bpmn:sequenceFlow id="Flow_ToRejected" sourceRef="Task_Reject" targetRef="EndEvent_Rejected" />
     <bpmn:sequenceFlow id="Flow_ToResolved" sourceRef="Task_WaitResolution" targetRef="EndEvent_Resolved" />
     <bpmn:sequenceFlow id="Flow_ToEscalate" sourceRef="Timer_SLA" targetRef="Task_Escalate" />
     <bpmn:sequenceFlow id="Flow_ToEscalated" sourceRef="Task_Escalate" targetRef="EndEvent_Escalated" />
@@ -67,6 +87,8 @@
     </bpmn:extensionElements>
   </bpmn:message>
 
+  <bpmn:error id="Error_NoAgent" name="Aucun agent disponible" errorCode="NO_AGENT" />
+
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="ticket-lifecycle">
       <bpmndi:BPMNShape id="Shape_Start" bpmnElement="StartEvent_TicketCreated">
@@ -75,6 +97,17 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Assign" bpmnElement="Task_AssignAgent">
         <dc:Bounds x="250" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ErrorNoAgent" bpmnElement="Error_NoAgentBoundary">
+        <dc:Bounds x="292" y="142" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="222" y="175" width="62" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Reject" bpmnElement="Task_Reject">
+        <dc:Bounds x="250" y="240" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndRejected" bpmnElement="EndEvent_Rejected">
+        <dc:Bounds x="292" y="382" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="293" y="425" width="34" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Wait" bpmnElement="Task_WaitResolution">
         <dc:Bounds x="430" y="80" width="120" height="80" />
@@ -101,6 +134,14 @@
       <bpmndi:BPMNEdge id="Edge_ToWait" bpmnElement="Flow_ToWait">
         <di:waypoint x="370" y="120" />
         <di:waypoint x="430" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToReject" bpmnElement="Flow_ToReject">
+        <di:waypoint x="310" y="178" />
+        <di:waypoint x="310" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToRejected" bpmnElement="Flow_ToRejected">
+        <di:waypoint x="310" y="320" />
+        <di:waypoint x="310" y="382" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToResolved" bpmnElement="Flow_ToResolved">
         <di:waypoint x="550" y="120" />

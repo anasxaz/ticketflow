@@ -1,6 +1,8 @@
 package com.ticketflow.userservice.controller;
 
+import com.ticketflow.userservice.model.Role;
 import com.ticketflow.userservice.model.User;
+import com.ticketflow.userservice.repository.UserRepository;
 import com.ticketflow.userservice.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserController {
     private final UserService userService;
+    private final UserRepository userRepository;
 
     @GetMapping
     public List<User> getAll(){
@@ -42,5 +45,9 @@ public class UserController {
         return userService.findByEmail(email);
     }
 
+    @GetMapping("/agents")
+    public List<User> getAgents(){
+        return userRepository.findByRole(Role.AGENT);
+    }
 
 }

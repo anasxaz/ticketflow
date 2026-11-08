@@ -3,6 +3,7 @@
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                   xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
                   xmlns:modeler="http://camunda.org/schema/modeler/1.0"
                   id="Definitions_TicketFlow"
@@ -22,16 +23,49 @@
         <zeebe:taskDefinition type="assign-agent" retries="3" />
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_ToAssign</bpmn:incoming>
-      <bpmn:outgoing>Flow_ToEnd</bpmn:outgoing>
+      <bpmn:outgoing>Flow_ToWait</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:endEvent id="EndEvent_Done" name="Terminé">
-      <bpmn:incoming>Flow_ToEnd</bpmn:incoming>
+    <bpmn:receiveTask id="Task_WaitResolution" name="Attendre la résolution" messageRef="Message_TicketResolved">
+      <bpmn:incoming>Flow_ToWait</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToResolved</bpmn:outgoing>
+    </bpmn:receiveTask>
+
+    <bpmn:boundaryEvent id="Timer_SLA" name="SLA dépassé" attachedToRef="Task_WaitResolution">
+      <bpmn:outgoing>Flow_ToEscalate</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_SLA">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">=slaDuration</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="Task_Escalate" name="Escalader le ticket">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="escalate-ticket" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ToEscalate</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToEscalated</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndEvent_Resolved" name="Résolu">
+      <bpmn:incoming>Flow_ToResolved</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:endEvent id="EndEvent_Escalated" name="Escaladé">
+      <bpmn:incoming>Flow_ToEscalated</bpmn:incoming>
     </bpmn:endEvent>
 
     <bpmn:sequenceFlow id="Flow_ToAssign" sourceRef="StartEvent_TicketCreated" targetRef="Task_AssignAgent" />
-    <bpmn:sequenceFlow id="Flow_ToEnd" sourceRef="Task_AssignAgent" targetRef="EndEvent_Done" />
+    <bpmn:sequenceFlow id="Flow_ToWait" sourceRef="Task_AssignAgent" targetRef="Task_WaitResolution" />
+    <bpmn:sequenceFlow id="Flow_ToResolved" sourceRef="Task_WaitResolution" targetRef="EndEvent_Resolved" />
+    <bpmn:sequenceFlow id="Flow_ToEscalate" sourceRef="Timer_SLA" targetRef="Task_Escalate" />
+    <bpmn:sequenceFlow id="Flow_ToEscalated" sourceRef="Task_Escalate" targetRef="EndEvent_Escalated" />
   </bpmn:process>
+
+  <bpmn:message id="Message_TicketResolved" name="ticket-resolved">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=ticketId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
 
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="ticket-lifecycle">
@@ -42,17 +76,43 @@
       <bpmndi:BPMNShape id="Shape_Assign" bpmnElement="Task_AssignAgent">
         <dc:Bounds x="250" y="80" width="120" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Shape_End" bpmnElement="EndEvent_Done">
-        <dc:Bounds x="432" y="102" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="429" y="145" width="42" height="14" /></bpmndi:BPMNLabel>
+      <bpmndi:BPMNShape id="Shape_Wait" bpmnElement="Task_WaitResolution">
+        <dc:Bounds x="430" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_TimerSLA" bpmnElement="Timer_SLA">
+        <dc:Bounds x="472" y="142" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="512" y="175" width="66" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Escalate" bpmnElement="Task_Escalate">
+        <dc:Bounds x="430" y="240" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndResolved" bpmnElement="EndEvent_Resolved">
+        <dc:Bounds x="622" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="622" y="145" width="36" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EndEscalated" bpmnElement="EndEvent_Escalated">
+        <dc:Bounds x="622" y="262" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="616" y="305" width="48" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_ToAssign" bpmnElement="Flow_ToAssign">
         <di:waypoint x="188" y="120" />
         <di:waypoint x="250" y="120" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Edge_ToEnd" bpmnElement="Flow_ToEnd">
+      <bpmndi:BPMNEdge id="Edge_ToWait" bpmnElement="Flow_ToWait">
         <di:waypoint x="370" y="120" />
-        <di:waypoint x="432" y="120" />
+        <di:waypoint x="430" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToResolved" bpmnElement="Flow_ToResolved">
+        <di:waypoint x="550" y="120" />
+        <di:waypoint x="622" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToEscalate" bpmnElement="Flow_ToEscalate">
+        <di:waypoint x="490" y="178" />
+        <di:waypoint x="490" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToEscalated" bpmnElement="Flow_ToEscalated">
+        <di:waypoint x="550" y="280" />
+        <di:waypoint x="622" y="280" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

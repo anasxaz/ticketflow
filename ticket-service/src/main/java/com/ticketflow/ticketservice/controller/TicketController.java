@@ -20,6 +20,7 @@ public class TicketController {
 
     //un petit DTO pour l'update du status
     public record StatusRequest(TicketStatus status){}
+    public record AssignRequest(Long agentId){}
 
     @GetMapping
     public List<Ticket> getAll(){
@@ -54,4 +55,11 @@ public class TicketController {
     public void delete(@PathVariable Long id){
         ticketService.delete(id);
     }
+
+
+    @PatchMapping("/{id}/assign")
+    public Ticket assign(@PathVariable Long id, @RequestBody AssignRequest request){
+        return ticketService.assign(id, request.agentId());
+    }
+
 }

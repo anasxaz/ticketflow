@@ -4,6 +4,7 @@ import com.ticketflow.workflowservice.event.TicketEvent;
 import io.camunda.client.CamundaClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -18,6 +19,9 @@ public class TicketEventListener {
     private final CamundaClient camundaClient;
     private final JsonMapper jsonMapper;
 
+    @Value("${ticketflow.sla-duration:PT2M}")
+    private String slaDuration;
+
     @KafkaListener(topics = "ticket-events")
     public void onTicketEvent(String message) {
         TicketEvent event = jsonMapper.readValue(message, TicketEvent.class);
@@ -29,7 +33,8 @@ public class TicketEventListener {
                 .variables(Map.of(
                         "ticketId", event.ticketId(),
                         "clientId", event.clientId(),
-                        "title", event.title()))
+                        "title", event.title(),
+                        "slaDuration", slaDuration))
                 .send()
                 .join();
 

@@ -144,6 +144,17 @@ services:
       discovery-server: { condition: service_started }
       kafka: { condition: service_started }
 
+  workflow-service:
+    build: ../workflow-service
+    container_name: workflow-service
+    environment: *client-env
+    restart: on-failure
+    depends_on:
+      config-server: { condition: service_started }
+      discovery-server: { condition: service_started }
+      kafka: { condition: service_started }
+      camunda: { condition: service_started }
+
   api-gateway:
     build: ../api-gateway
     container_name: api-gateway

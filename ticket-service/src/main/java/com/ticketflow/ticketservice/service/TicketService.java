@@ -91,4 +91,14 @@ public class TicketService {
     public void delete(Long id){
         ticketRepository.deleteById(id);
     }
+
+    @Transactional
+    public Ticket assign(Long id, Long agentId){
+        Ticket ticket = findById(id);
+        ticket.setAgentId(agentId);
+        ticket.setStatus(TicketStatus.ASSIGNED);
+        Ticket saved = ticketRepository.save(ticket);
+        eventPublisher.publish("STATUS_CHANGED", saved);  //pour faire une notification au client
+        return saved;
+    }
 }

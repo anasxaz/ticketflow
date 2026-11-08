@@ -23,10 +23,19 @@ public class TicketEventListener {
     private String slaDuration;
 
     @KafkaListener(topics = "ticket-events")
-    public void onTicketEvent(String message) {
+    public void onEvent(String message) {
         TicketEvent event = jsonMapper.readValue(message, TicketEvent.class);
-        if (!"TICKET_CREATED".equals(event.type())) return;   // seulement les créations
 
+        switch (event.type()) {
+            case "TICKET_CREATED" -> startProcess(event);
+            case "STATUS_CHANGED" -> {
+                if ("CLOSED".equals(event.status())) resolve(event);
+            }
+            default -> { }   // on ignore les autres événements
+        }
+    }
+
+    private void startProcess(TicketEvent event) {
         var instance = camundaClient.newCreateInstanceCommand()
                 .bpmnProcessId("ticket-lifecycle")
                 .latestVersion()
@@ -40,5 +49,15 @@ public class TicketEventListener {
 
         log.info("Process started for ticket {} (instance {})",
                 event.ticketId(), instance.getProcessInstanceKey());
+    }
+
+    private void resolve(TicketEvent event) {
+        camundaClient.newPublishMessageCommand()
+                .messageName("ticket-resolved")
+                .correlationKey(String.valueOf(event.ticketId()))
+                .send()
+                .join();
+
+        log.info("Message ticket-resolved sent for ticket {}", event.ticketId());
     }
 }

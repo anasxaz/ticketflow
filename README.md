@@ -1,12 +1,12 @@
 # 🎫 TicketFlow
 
-Plateforme **microservices** de gestion d'incidents et de demandes clients (type opérateur télécom), construite avec **Spring Boot** et **Spring Cloud**.
+Plateforme **microservices** de gestion d'incidents et de demandes clients (type opérateur télécom), construite avec **Spring Boot**, **Spring Cloud** et orchestrée par **Camunda 8**.
 
-> Cycle de vie d'un ticket : `OPEN → ASSIGNED → ESCALATED → CLOSED`
+> Cycle de vie d'un ticket : `OPEN → ASSIGNED → CLOSED` · ou `ESCALATED` si le SLA est dépassé · ou `REJECTED` si aucun agent n'est disponible
 
 ## 🚧 Statut
 
-En cours de développement — **Étapes 1 à 5 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak)
+En cours de développement — **Étapes 1 à 6 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA)
 
 ## 🏗️ Architecture
 
@@ -24,6 +24,10 @@ flowchart LR
     TS --> TDB[(MariaDB<br/>ticket_db<br/>+ outbox_events)]
     TDB -->|Outbox Relay| K[(Kafka<br/>ticket-events)]
     K -->|consomme| NS
+    K -->|consomme| WS[Workflow Service<br/>workers Camunda]
+    WS <-->|instances, jobs, messages| CA[Camunda 8<br/>Zeebe + Operate]
+    WS -->|OpenFeign : agents| US
+    WS -->|OpenFeign : assign / status| TS
 
     US --> UDB[(MariaDB<br/>user_db)]
     NS --> NDB[(MariaDB<br/>notification_db)]
@@ -32,11 +36,13 @@ flowchart LR
     CS -. configuration .-> TS
     CS -. configuration .-> NS
     CS -. configuration .-> GW
+    CS -. configuration .-> WS
 
     EU[Eureka<br/>Discovery Server]
     US -. enregistrement .-> EU
     TS -. enregistrement .-> EU
     NS -. enregistrement .-> EU
+    WS -. enregistrement .-> EU
     GW -. découverte .-> EU
 ```
 
@@ -49,6 +55,8 @@ flowchart LR
 | `user-service` | Gestion des clients et agents | 8081 |
 | `ticket-service` | Gestion des tickets, publication d'événements via Outbox | 8082 |
 | `notification-service` | Notifications clients (consumer Kafka idempotent) | 8083 |
+| `workflow-service` | Orchestration du cycle de vie (Camunda) : assignation, SLA, compensation | 8084 |
+| `camunda` | Moteur de workflow Zeebe + Operate (H2 en dev) | 8088 / 26500 |
 | `kafka` | Broker de messages (mode KRaft, sans Zookeeper) | 9092 |
 | `kafka-ui` | Interface web pour Kafka | 8090 |
 
@@ -58,6 +66,7 @@ flowchart LR
 - **Communication asynchrone** (Kafka) pour découpler les services : la création d'un ticket ne dépend pas de la disponibilité du service de notifications.
 - **Transactional Outbox** : le ticket et son événement sont écrits dans la **même transaction** (table `outbox_events`). Un relay planifié publie ensuite vers Kafka : aucun événement perdu, même si Kafka est indisponible.
 - **Idempotence** : la livraison est *at-least-once*, donc chaque événement porte un `eventId` unique et notification-service ignore les doublons.
+- **Orchestration** (Camunda) pour le processus métier long : le cycle de vie d'un ticket est un modèle **BPMN** visible et versionné, pas du code dispersé entre services.
 
 ## 🔐 Sécurité
 
@@ -118,9 +127,33 @@ sequenceDiagram
     NS->>NS: eventId déjà traité ? sinon save + notifier
 ```
 
+## ⚙️ Workflow Camunda : Saga + escalade SLA
+
+Chaque `TICKET_CREATED` lu sur Kafka démarre une instance du processus BPMN `ticket-lifecycle`. Les étapes sont exécutées par des **job workers** (`@JobWorker`) du workflow-service.
+
+```mermaid
+flowchart LR
+    S((Ticket créé)) --> A[Assigner un agent]
+    A --> W[Attendre la résolution]
+    W -->|message ticket-resolved| R((Résolu))
+    W -. timer SLA dépassé .-> E[Escalader le ticket] --> X((Escaladé))
+    A -. erreur NO_AGENT .-> J[Rejeter le ticket] --> RJ((Rejeté))
+```
+
+| Scénario | Mécanisme BPMN | Résultat |
+|---|---|---|
+| Agent ferme le ticket à temps | **Receive task** + message `ticket-resolved` (corrélé par `ticketId`, envoyé quand `STATUS_CHANGED → CLOSED`) | Timer annulé, fin **Résolu** |
+| SLA dépassé | **Boundary timer** interrompant (`slaDuration`, `PT2M` en démo, configurable) | Ticket `ESCALATED`, fin **Escaladé** |
+| Aucun agent disponible | **Erreur BPMN** `NO_AGENT` levée par le worker + **chemin de compensation** | Ticket `REJECTED`, client notifié, fin **Rejeté** |
+
+**Points clés :**
+- **Erreur métier ≠ panne technique** : une erreur BPMN suit la branche prévue ; une exception technique (service indisponible) déclenche des **retries** (3), puis un **incident** visible et relançable dans Operate.
+- Chaque changement de statut passe par ticket-service → Outbox → Kafka : le client est notifié quel que soit le chemin.
+- Le BPMN est déployé automatiquement au démarrage (`@Deployment`) et **versionné** par Camunda.
+
 ## 🛠️ Stack
 
-Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
+Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
 
 ## 🚀 Lancer le projet
 
@@ -140,6 +173,7 @@ docker compose up --build -d
 | Dashboard Eureka | http://localhost:8761 |
 | Kafka UI | http://localhost:8090 |
 | Keycloak (admin / admin) | http://localhost:8180 |
+| Camunda Operate (demo / demo) | http://localhost:8088/operate |
 | Config Server (ex.) | http://localhost:8888/ticket-service/docker |
 
 ## 📡 Endpoints
@@ -160,7 +194,8 @@ Toutes les requêtes passent par la Gateway (`localhost:8087`) avec un token JWT
 | GET | `/api/tickets` | Lister les tickets |
 | GET | `/api/tickets/{id}` | Détail d'un ticket (404 si inexistant) |
 | POST | `/api/tickets` | Créer un ticket (statut `OPEN` auto, client déduit du token) |
-| PATCH | `/api/tickets/{id}/status` | Changer le statut |
+| PATCH | `/api/tickets/{id}/status` | Changer le statut (`CLOSED` termine le workflow sur **Résolu**) |
+| PATCH | `/api/tickets/{id}/assign` | Assigner un agent (appelé par le workflow-service) |
 | DELETE | `/api/tickets/{id}` | Supprimer un ticket |
 
 **Notifications**
@@ -193,7 +228,7 @@ POST /api/tickets
 - [x] **3. Kafka + Notification Service** : événements `ticket-events`, consumer idempotent
 - [x] **4. Transactional Outbox** : plus de *dual write*, événements garantis même si Kafka tombe
 - [x] **5. Sécurité Keycloak** : OAuth2 / JWT, rôles `CLIENT` / `AGENT`, identité tirée du token
-- [ ] 6. Saga Camunda avec compensation + escalade SLA
+- [x] **6. Workflow Camunda 8** : BPMN, assignation automatique, escalade SLA (timer), résolution (message), Saga avec compensation
 - [ ] 7. Resilience4j + Zipkin
 - [ ] 8. Observabilité : Prometheus, Grafana, Loki
 - [ ] 9. Tests d'intégration avec Testcontainers

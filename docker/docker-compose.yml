@@ -75,6 +75,10 @@ services:
       KAFKA_CLUSTERS_0_NAME: ticketflow
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
     depends_on: [kafka]
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports: ["9411:9411"]
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0

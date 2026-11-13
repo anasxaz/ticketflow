@@ -6,7 +6,7 @@ Plateforme **microservices** de gestion d'incidents et de demandes clients (type
 
 ## 🚧 Statut
 
-En cours de développement — **Étapes 1 à 6 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA)
+En cours de développement — **Étapes 1 à 7 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué)
 
 ## 🏗️ Architecture
 
@@ -20,7 +20,7 @@ flowchart LR
     GW -->|lb://ticket-service| TS[Ticket Service]
     GW -->|lb://notification-service| NS[Notification Service]
 
-    TS -->|OpenFeign : client existe ?| US
+    TS -->|OpenFeign + circuit breaker : client existe ?| US
     TS --> TDB[(MariaDB<br/>ticket_db<br/>+ outbox_events)]
     TDB -->|Outbox Relay| K[(Kafka<br/>ticket-events)]
     K -->|consomme| NS
@@ -44,6 +44,11 @@ flowchart LR
     NS -. enregistrement .-> EU
     WS -. enregistrement .-> EU
     GW -. découverte .-> EU
+
+    ZK[Zipkin<br/>traces]
+    GW -. spans .-> ZK
+    TS -. spans .-> ZK
+    US -. spans .-> ZK
 ```
 
 | Service | Rôle | Port |
@@ -59,6 +64,7 @@ flowchart LR
 | `camunda` | Moteur de workflow Zeebe + Operate (H2 en dev) | 8088 / 26500 |
 | `kafka` | Broker de messages (mode KRaft, sans Zookeeper) | 9092 |
 | `kafka-ui` | Interface web pour Kafka | 8090 |
+| `zipkin` | Collecte et visualisation des traces distribuées | 9411 |
 
 **Principes :**
 - **Database per Service** : chaque service possède sa propre base MariaDB.
@@ -151,9 +157,32 @@ flowchart LR
 - Chaque changement de statut passe par ticket-service → Outbox → Kafka : le client est notifié quel que soit le chemin.
 - Le BPMN est déployé automatiquement au démarrage (`@Deployment`) et **versionné** par Camunda.
 
+## 🛡️ Résilience et observabilité
+
+**Circuit breaker (Resilience4j)** sur l'appel OpenFeign ticket-service → user-service :
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> CLOSED
+    CLOSED --> OPEN: ≥ 50 % d'échecs (fenêtre de 5 appels)
+    OPEN --> HALF_OPEN: après 10 s
+    HALF_OPEN --> CLOSED: 2 appels réussis
+    HALF_OPEN --> OPEN: échec
+```
+
+- **Timeout de 3 s** : un appel trop lent compte comme un échec.
+- **Fallback** (`FallbackFactory`) : si user-service est indisponible, la création de ticket répond **`503` immédiatement** avec un message clair, au lieu de bloquer les threads de ticket-service (pas de panne en cascade).
+- Les erreurs **4xx** (ex. utilisateur introuvable) sont des réponses métier : elles **ne comptent pas** comme des pannes et sont renvoyées telles quelles.
+
+**Tracing distribué (Micrometer Tracing + Zipkin)** :
+- Chaque requête reçoit un **traceId**, propagé par la Gateway et par Feign (`feign-micrometer`) : le trajet `api-gateway → ticket-service → user-service` s'affiche sur une seule frise dans Zipkin.
+- Le traceId apparaît aussi dans les logs (`[traceId-spanId]`), ce qui permet de relier les logs de plusieurs services.
+- Échantillonnage à 100 % en dev ; les tâches `@Scheduled` (relay Outbox) sont exclues du tracing pour éviter le bruit.
+
 ## 🛠️ Stack
 
-Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
+Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
 
 ## 🚀 Lancer le projet
 
@@ -174,6 +203,8 @@ docker compose up --build -d
 | Kafka UI | http://localhost:8090 |
 | Keycloak (admin / admin) | http://localhost:8180 |
 | Camunda Operate (demo / demo) | http://localhost:8088/operate |
+| Zipkin (traces) | http://localhost:9411 |
+| État du circuit breaker (health) | http://localhost:8082/actuator/health |
 | Config Server (ex.) | http://localhost:8888/ticket-service/docker |
 
 ## 📡 Endpoints
@@ -220,6 +251,7 @@ POST /api/tickets
 | Rôle insuffisant | `403` |
 | Utilisateur du token sans profil en base | `403` |
 | Ressource introuvable | `404` |
+| user-service indisponible (circuit breaker / fallback) | `503` |
 
 ## 🗺️ Roadmap
 
@@ -229,7 +261,7 @@ POST /api/tickets
 - [x] **4. Transactional Outbox** : plus de *dual write*, événements garantis même si Kafka tombe
 - [x] **5. Sécurité Keycloak** : OAuth2 / JWT, rôles `CLIENT` / `AGENT`, identité tirée du token
 - [x] **6. Workflow Camunda 8** : BPMN, assignation automatique, escalade SLA (timer), résolution (message), Saga avec compensation
-- [ ] 7. Resilience4j + Zipkin
+- [x] **7. Résilience + Tracing** : circuit breaker Resilience4j avec fallback `503`, tracing distribué Micrometer + Zipkin
 - [ ] 8. Observabilité : Prometheus, Grafana, Loki
 - [ ] 9. Tests d'intégration avec Testcontainers
 - [ ] 10. GitLab CI + Kubernetes

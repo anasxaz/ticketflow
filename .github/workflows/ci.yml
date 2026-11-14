@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Installer Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -48,3 +48,41 @@ jobs:
       - name: Build (sans tests)
         if: ${{ !matrix.tests }}
         run: ./mvnw -B package -DskipTests
+    
+  
+  docker:
+    name: image ${{ matrix.service }}
+    needs: build                       # attend que TOUS les jobs de build/tests soient verts
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write                  # autorise à publier sur ghcr.io
+
+    strategy:
+      matrix:
+        service: [config-server, discovery-server, api-gateway, user-service,
+                  ticket-service, notification-service, workflow-service]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3      # moteur de build Docker moderne (cache, BuildKit)
+
+      - name: Connexion a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # token fourni automatiquement par GitHub
+
+      - name: Build + push de l'image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}         # dossier qui contient le Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ticketflow-${{ matrix.service }}:latest
+            ghcr.io/${{ github.repository_owner }}/ticketflow-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}      

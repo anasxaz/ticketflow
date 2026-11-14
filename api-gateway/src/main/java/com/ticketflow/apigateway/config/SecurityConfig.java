@@ -22,7 +22,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())   // API stateless : pas de cookie de session
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/actuator/**", "/error").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/tickets").hasRole("CLIENT")
                         .requestMatchers(HttpMethod.PATCH, "/api/tickets/*/status").hasRole("AGENT")
                         .requestMatchers(HttpMethod.GET, "/api/tickets/**").hasRole("AGENT")

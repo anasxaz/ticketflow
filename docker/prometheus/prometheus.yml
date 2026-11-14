@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s          # Prometheus vient lire les métriques toutes les 15 s
+
+scrape_configs:
+  - job_name: "ticketflow"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets:
+          - "api-gateway:8087"
+          - "ticket-service:8082"
+          - "user-service:8081"

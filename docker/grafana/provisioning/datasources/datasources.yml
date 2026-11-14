@@ -6,3 +6,14 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        - name: traceId
+          matcherRegex: '\[([0-9a-f]{32})-'
+          url: 'http://localhost:9411/zipkin/traces/$${__value.raw}'
+          urlDisplayLabel: 'Voir dans Zipkin'  

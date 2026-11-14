@@ -6,7 +6,7 @@ Plateforme **microservices** de gestion d'incidents et de demandes clients (type
 
 ## 🚧 Statut
 
-En cours de développement — **Étapes 1 à 8 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué, Observabilité : Prometheus, Grafana, Loki)
+En cours de développement — **Étapes 1 à 9 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué, Observabilité : Prometheus, Grafana, Loki, Tests d'intégration Testcontainers)
 
 ## 🏗️ Architecture
 
@@ -215,9 +215,32 @@ Exemples de requêtes LogQL :
 {container=~".*-service"} |= "WARN"
 ```
 
+## 🧪 Tests d'intégration (Testcontainers)
+
+Les tests démarrent de **vraies dépendances** dans des containers Docker jetables : **MariaDB** et **Kafka** (`apache/kafka-native`). Spring Boot s'y connecte automatiquement grâce à `@ServiceConnection`. Pas de H2 ni de Kafka embarqué : les tests utilisent **les mêmes technologies qu'en production**.
+
+- Les appels vers les autres services (OpenFeign) sont **mockés** (`@MockitoBean`) : chaque service est testé isolément.
+- Les containers sont **partagés** entre toutes les classes de test (pattern singleton) pour des tests rapides.
+- L'asynchrone (relay Outbox, consumer Kafka) est vérifié avec **Awaitility**, sans `Thread.sleep`.
+
+| Service | Test | Garantie prouvée |
+|---|---|---|
+| ticket-service | Création d'un ticket | Ticket **et** événement `TICKET_CREATED` écrits dans la même transaction |
+| ticket-service | Utilisateur non `CLIENT` | Création refusée, rien n'est écrit en base |
+| ticket-service | Échec d'écriture de l'événement (`@MockitoSpyBean`) | **Rollback** du ticket : jamais de ticket sans événement (atomicité de l'Outbox) |
+| ticket-service | Relay Outbox | L'événement arrive dans le **vrai Kafka** (clé = `ticketId`) et `sent_at` est renseigné |
+| notification-service | Même événement reçu 2 fois | Une seule notification (**consumer idempotent**) |
+| notification-service | Doublon envoyé via Kafka | Idempotence vérifiée **de bout en bout**, en s'appuyant sur l'ordre garanti par partition |
+
+```bash
+# Prérequis : Docker Desktop lancé
+cd ticket-service && ./mvnw test
+cd notification-service && ./mvnw test
+```
+
 ## 🛠️ Stack
 
-Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · **Prometheus · Grafana · Loki · Grafana Alloy** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
+Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · **Prometheus · Grafana · Loki · Grafana Alloy** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose · **JUnit 5 · Testcontainers · Mockito · Awaitility**
 
 ## 🚀 Lancer le projet
 
@@ -301,7 +324,7 @@ POST /api/tickets
 - [x] **6. Workflow Camunda 8** : BPMN, assignation automatique, escalade SLA (timer), résolution (message), Saga avec compensation
 - [x] **7. Résilience + Tracing** : circuit breaker Resilience4j avec fallback `503`, tracing distribué Micrometer + Zipkin
 - [x] **8. Observabilité** : métriques Prometheus, logs centralisés Loki + Alloy, dashboards Grafana provisionnés, lien logs → traces Zipkin
-- [ ] 9. Tests d'intégration avec Testcontainers
+- [x] **9. Tests d'intégration** : Testcontainers (MariaDB, Kafka), atomicité de l'Outbox, relay Kafka, idempotence du consumer
 - [ ] 10. GitLab CI + Kubernetes
 - [ ] 11. Front Angular minimal + ADR
 

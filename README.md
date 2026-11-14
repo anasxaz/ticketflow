@@ -6,7 +6,7 @@ Plateforme **microservices** de gestion d'incidents et de demandes clients (type
 
 ## 🚧 Statut
 
-En cours de développement — **Étapes 1 à 7 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué)
+En cours de développement — **Étapes 1 à 8 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué, Observabilité : Prometheus, Grafana, Loki)
 
 ## 🏗️ Architecture
 
@@ -65,6 +65,10 @@ flowchart LR
 | `kafka` | Broker de messages (mode KRaft, sans Zookeeper) | 9092 |
 | `kafka-ui` | Interface web pour Kafka | 8090 |
 | `zipkin` | Collecte et visualisation des traces distribuées | 9411 |
+| `prometheus` | Collecte des métriques (scraping de `/actuator/prometheus`) | 9090 |
+| `grafana` | Dashboards (métriques Prometheus + logs Loki), provisionnés as code | 3000 |
+| `loki` | Stockage et recherche des logs centralisés | 3100 |
+| `alloy` | Collecteur des logs Docker → Loki | 12345 |
 
 **Principes :**
 - **Database per Service** : chaque service possède sa propre base MariaDB.
@@ -180,9 +184,40 @@ stateDiagram-v2
 - Le traceId apparaît aussi dans les logs (`[traceId-spanId]`), ce qui permet de relier les logs de plusieurs services.
 - Échantillonnage à 100 % en dev ; les tâches `@Scheduled` (relay Outbox) sont exclues du tracing pour éviter le bruit.
 
+## 📊 Observabilité : métriques, logs, traces
+
+Les **3 piliers** sont en place et réunis dans **Grafana** :
+
+| Pilier | Question | Outil | Collecte |
+|---|---|---|---|
+| Métriques | **Quoi ?** (débit, erreurs, mémoire JVM…) | Micrometer → **Prometheus** | *pull* : scraping de `/actuator/prometheus` toutes les 15 s |
+| Logs | **Pourquoi ?** (message d'erreur exact) | **Grafana Alloy** → **Loki** | *push* : Alloy lit les logs Docker de tous les containers |
+| Traces | **Où ?** (trajet de la requête) | Micrometer Tracing → **Zipkin** | *push* : spans envoyés par chaque service |
+
+```mermaid
+flowchart LR
+    S[Services Spring Boot] -->|/actuator/prometheus| P[Prometheus]
+    S -->|logs Docker| A[Grafana Alloy] --> L[Loki]
+    S -->|spans| Z[Zipkin]
+    P --> G[Grafana]
+    L --> G
+    G -. lien traceId .-> Z
+```
+
+- **Grafana as code** : les datasources (Prometheus, Loki) et les dashboards (JVM Micrometer + dashboard `TicketFlow`) sont **provisionnés** depuis `docker/grafana/`, donc disponibles dès le démarrage, sans configuration manuelle.
+- **Dashboard `TicketFlow`** (PromQL) : requêtes/seconde et erreurs 5xx/seconde par service, par exemple `sum by (application) (rate(http_server_requests_seconds_count{status=~"5.."}[1m]))`.
+- **Logs ↔ traces** : Grafana détecte le `traceId` dans chaque ligne de log Loki et affiche un lien **« Voir dans Zipkin »** qui ouvre la trace correspondante.
+- **Scénario de démo** : arrêter `user-service` → pic d'erreurs 5xx sur le dashboard, logs `CallNotPermittedException → fallback` dans Loki, trace de la requête dans Zipkin.
+
+Exemples de requêtes LogQL :
+```
+{container="ticket-service"} |= "Outbox"
+{container=~".*-service"} |= "WARN"
+```
+
 ## 🛠️ Stack
 
-Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
+Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · **Prometheus · Grafana · Loki · Grafana Alloy** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose
 
 ## 🚀 Lancer le projet
 
@@ -204,6 +239,9 @@ docker compose up --build -d
 | Keycloak (admin / admin) | http://localhost:8180 |
 | Camunda Operate (demo / demo) | http://localhost:8088/operate |
 | Zipkin (traces) | http://localhost:9411 |
+| Grafana (admin / admin) | http://localhost:3000 |
+| Prometheus (cibles) | http://localhost:9090/targets |
+| Alloy (pipeline de logs) | http://localhost:12345 |
 | État du circuit breaker (health) | http://localhost:8082/actuator/health |
 | Config Server (ex.) | http://localhost:8888/ticket-service/docker |
 
@@ -262,7 +300,7 @@ POST /api/tickets
 - [x] **5. Sécurité Keycloak** : OAuth2 / JWT, rôles `CLIENT` / `AGENT`, identité tirée du token
 - [x] **6. Workflow Camunda 8** : BPMN, assignation automatique, escalade SLA (timer), résolution (message), Saga avec compensation
 - [x] **7. Résilience + Tracing** : circuit breaker Resilience4j avec fallback `503`, tracing distribué Micrometer + Zipkin
-- [ ] 8. Observabilité : Prometheus, Grafana, Loki
+- [x] **8. Observabilité** : métriques Prometheus, logs centralisés Loki + Alloy, dashboards Grafana provisionnés, lien logs → traces Zipkin
 - [ ] 9. Tests d'intégration avec Testcontainers
 - [ ] 10. GitLab CI + Kubernetes
 - [ ] 11. Front Angular minimal + ADR

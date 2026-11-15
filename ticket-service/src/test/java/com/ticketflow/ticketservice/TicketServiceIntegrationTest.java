@@ -6,6 +6,7 @@ import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.event.TicketEventPublisher;
 import com.ticketflow.ticketservice.model.Priority;
 import com.ticketflow.ticketservice.model.Ticket;
+import com.ticketflow.ticketservice.model.TicketCategory;
 import com.ticketflow.ticketservice.model.TicketStatus;
 import com.ticketflow.ticketservice.outbox.OutboxEvent;
 import com.ticketflow.ticketservice.outbox.OutboxEventRepository;
@@ -48,14 +49,14 @@ class TicketServiceIntegrationTest extends AbstractIntegrationTest {
     }
 
     private CreateTicketRequest request() {
-        return new CreateTicketRequest("Pas de connexion", "Box eteinte", Priority.HIGH);
+        return new CreateTicketRequest("titre", "desc", TicketCategory.PANNE_TOTALE, true);
     }
 
     @Test
     void create_savesTicketAndOutboxEvent_inSameTransaction() {
         // GIVEN : user-service dit "c'est un CLIENT, id 2"
         when(userClient.getUserByEmail(EMAIL))
-                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT"));
+                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT", "PARTICULIER"));
 
         // WHEN
         Ticket saved = ticketService.create(request(), EMAIL);
@@ -64,6 +65,7 @@ class TicketServiceIntegrationTest extends AbstractIntegrationTest {
         Ticket inDb = ticketRepository.findById(saved.getId()).orElseThrow();
         assertThat(inDb.getStatus()).isEqualTo(TicketStatus.OPEN);
         assertThat(inDb.getClientId()).isEqualTo(2L);          // vient du "token", pas du body
+        assertThat(inDb.getPriority()).isEqualTo(Priority.CRITICAL);   // PANNE_TOTALE + bloque
 
         // THEN 2 : l'evenement est dans la table outbox
         List<OutboxEvent> events = outboxRepository.findAll();
@@ -76,7 +78,7 @@ class TicketServiceIntegrationTest extends AbstractIntegrationTest {
     void create_isRejected_whenUserIsNotClient() {
         // GIVEN : l'utilisateur est un AGENT
         when(userClient.getUserByEmail(EMAIL))
-                .thenReturn(new UserResponse(1L, "Anas", EMAIL, "AGENT"));
+                .thenReturn(new UserResponse(1L, "Anas", EMAIL, "AGENT", null));
 
         // WHEN / THEN : refuse...
         assertThatThrownBy(() -> ticketService.create(request(), EMAIL))
@@ -92,7 +94,7 @@ class TicketServiceIntegrationTest extends AbstractIntegrationTest {
     void create_rollsBackTicket_whenOutboxWriteFails() {
         // GIVEN : client valide, MAIS l'ecriture de l'evenement va echouer
         when(userClient.getUserByEmail(EMAIL))
-                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT"));
+                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT", "PARTICULIER"));
         doThrow(new RuntimeException("Echec ecriture outbox"))
                 .when(eventPublisher).publish(eq("TICKET_CREATED"), any(Ticket.class));
 

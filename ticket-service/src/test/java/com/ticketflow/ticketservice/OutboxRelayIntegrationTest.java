@@ -5,6 +5,7 @@ import com.ticketflow.ticketservice.dto.CreateTicketRequest;
 import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.model.Priority;
 import com.ticketflow.ticketservice.model.Ticket;
+import com.ticketflow.ticketservice.model.TicketCategory;
 import com.ticketflow.ticketservice.outbox.OutboxEventRepository;
 import com.ticketflow.ticketservice.repository.TicketRepository;
 import com.ticketflow.ticketservice.service.TicketService;
@@ -48,11 +49,11 @@ class OutboxRelayIntegrationTest extends AbstractIntegrationTest {
     void relay_publishesEventToKafka_andMarksItAsSent() {
         // GIVEN
         when(userClient.getUserByEmail(EMAIL))
-                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT"));
+                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT", null));
 
         // WHEN : on cree un ticket (l'evenement va dans la table outbox)
         Ticket saved = ticketService.create(
-                new CreateTicketRequest("Test relay", "Kafka", Priority.LOW), EMAIL);
+                new CreateTicketRequest("Test relay", "Kafka", TicketCategory.FACTURATION, false), EMAIL);
         String ticketId = String.valueOf(saved.getId());
 
         // THEN 1 : un VRAI consumer Kafka recoit l'evenement (dans les 15 s)

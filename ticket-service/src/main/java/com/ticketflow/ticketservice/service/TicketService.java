@@ -23,6 +23,7 @@ public class TicketService {
     private final UserClient userClient;
 
     private final TicketEventPublisher eventPublisher;  //après avoir ajouté kafka pour la notification
+    private final PriorityPolicy priorityPolicy;
 
     public List<Ticket> findAll(){
         return ticketRepository.findAll();
@@ -70,8 +71,11 @@ public class TicketService {
         Ticket ticket = new Ticket();
         ticket.setTitle(request.title());
         ticket.setDescription(request.description());
-        ticket.setPriority(request.priority());
-        ticket.setClientId(user.id());               // 👈 vient du TOKEN, pas du body
+        ticket.setCategory(request.category());
+        ticket.setBlocked(request.blocked());
+        ticket.setPriority(priorityPolicy.compute(        // est CALCULEE, plus choisie
+                request.category(), request.blocked(), user.customerType()));
+        ticket.setClientId(user.id());               // ça vient du TOKEN, pas du body
 
         Ticket saved = ticketRepository.save(ticket);
         eventPublisher.publish("TICKET_CREATED", saved);

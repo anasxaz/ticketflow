@@ -31,6 +31,12 @@ public class Ticket {
     @Enumerated(EnumType.STRING)
     private Priority priority;
 
+    @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "VARCHAR(30)")
+    private TicketCategory category;
+
+    private Boolean blocked;
+
     @NotNull
     private Long clientId;
 

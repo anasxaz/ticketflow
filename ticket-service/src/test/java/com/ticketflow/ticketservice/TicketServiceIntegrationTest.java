@@ -1,13 +1,11 @@
 package com.ticketflow.ticketservice;
 
+import com.ticketflow.ticketservice.ai.TicketClassifier;
 import com.ticketflow.ticketservice.client.UserClient;
 import com.ticketflow.ticketservice.dto.CreateTicketRequest;
 import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.event.TicketEventPublisher;
-import com.ticketflow.ticketservice.model.Priority;
-import com.ticketflow.ticketservice.model.Ticket;
-import com.ticketflow.ticketservice.model.TicketCategory;
-import com.ticketflow.ticketservice.model.TicketStatus;
+import com.ticketflow.ticketservice.model.*;
 import com.ticketflow.ticketservice.outbox.OutboxEvent;
 import com.ticketflow.ticketservice.outbox.OutboxEventRepository;
 import com.ticketflow.ticketservice.repository.TicketRepository;
@@ -20,6 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +36,9 @@ class TicketServiceIntegrationTest extends AbstractIntegrationTest {
 
     @MockitoSpyBean         // le VRAI publisher, mais qu'on peut faire echouer a la demande
     TicketEventPublisher eventPublisher;
+
+    @MockitoBean
+    TicketClassifier ticketClassifier;     // pas d'appel reseau dans les tests
 
     @Autowired TicketService ticketService;
     @Autowired TicketRepository ticketRepository;
@@ -105,5 +107,34 @@ class TicketServiceIntegrationTest extends AbstractIntegrationTest {
         // THEN : le ticket a ete ANNULE (rollback) -> pas de ticket sans evenement
         assertThat(ticketRepository.count()).isZero();
         assertThat(outboxRepository.count()).isZero();
+    }
+
+    @Test
+    void create_usesAi_whenOnlyDescription_andConfident() {
+        when(userClient.getUserByEmail(EMAIL))
+                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT", "PARTICULIER"));
+        when(ticketClassifier.classify(any(), any())).thenReturn(Optional.of(
+                new TicketClassifier.Classification(TicketCategory.PANNE_TOTALE, true, 0.92)));
+
+        Ticket saved = ticketService.create(
+                new CreateTicketRequest("Plus d'internet", "Plus rien depuis ce matin, je suis bloque", null, null), EMAIL);
+
+        assertThat(saved.getPriority()).isEqualTo(Priority.CRITICAL);
+        assertThat(saved.getTriageSource()).isEqualTo(TriageSource.AI);
+        assertThat(saved.getNeedsReview()).isFalse();
+    }
+
+    @Test
+    void create_fallsBackToHumanReview_whenAiIsDown() {
+        when(userClient.getUserByEmail(EMAIL))
+                .thenReturn(new UserResponse(2L, "Youssef", EMAIL, "CLIENT", "PARTICULIER"));
+        when(ticketClassifier.classify(any(), any())).thenReturn(Optional.empty());   // LLM en panne
+
+        Ticket saved = ticketService.create(
+                new CreateTicketRequest("Probleme", "Ca ne marche pas bien", null, null), EMAIL);
+
+        assertThat(saved.getPriority()).isEqualTo(Priority.MEDIUM);
+        assertThat(saved.getTriageSource()).isEqualTo(TriageSource.FALLBACK);
+        assertThat(saved.getNeedsReview()).isTrue();
     }
 }

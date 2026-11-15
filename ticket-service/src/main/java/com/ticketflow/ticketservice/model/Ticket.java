@@ -42,6 +42,14 @@ public class Ticket {
 
     private Long agentId;
 
+
+    @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "VARCHAR(20)")
+    private TriageSource triageSource;
+
+    private Double aiConfidence;     // confiance du LLM (null si formulaire)
+    private Boolean needsReview;     // true -> un humain doit trier
+
     private LocalDateTime createdAt;
 
     @PrePersist  //exécuté juste avant l'INSERT

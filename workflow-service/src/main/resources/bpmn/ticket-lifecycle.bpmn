@@ -46,8 +46,15 @@
 
     <bpmn:receiveTask id="Task_WaitResolution" name="Attendre la résolution" messageRef="Message_TicketResolved">
       <bpmn:incoming>Flow_ToWait</bpmn:incoming>
+      <bpmn:incoming>Flow_Requalified</bpmn:incoming>
       <bpmn:outgoing>Flow_ToResolved</bpmn:outgoing>
     </bpmn:receiveTask>
+
+    <!-- Requalification : l'agent change la priorite -> on annule l'attente (et son timer) puis on la relance avec le nouveau SLA -->
+    <bpmn:boundaryEvent id="Event_PriorityChanged" name="Priorité modifiée" attachedToRef="Task_WaitResolution">
+      <bpmn:outgoing>Flow_Requalified</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageDef_PriorityChanged" messageRef="Message_PriorityChanged" />
+    </bpmn:boundaryEvent>
 
     <bpmn:boundaryEvent id="Timer_SLA" name="SLA dépassé" attachedToRef="Task_WaitResolution">
       <bpmn:outgoing>Flow_ToEscalate</bpmn:outgoing>
@@ -78,10 +85,17 @@
     <bpmn:sequenceFlow id="Flow_ToRejected" sourceRef="Task_Reject" targetRef="EndEvent_Rejected" />
     <bpmn:sequenceFlow id="Flow_ToResolved" sourceRef="Task_WaitResolution" targetRef="EndEvent_Resolved" />
     <bpmn:sequenceFlow id="Flow_ToEscalate" sourceRef="Timer_SLA" targetRef="Task_Escalate" />
+    <bpmn:sequenceFlow id="Flow_Requalified" sourceRef="Event_PriorityChanged" targetRef="Task_WaitResolution" />
     <bpmn:sequenceFlow id="Flow_ToEscalated" sourceRef="Task_Escalate" targetRef="EndEvent_Escalated" />
   </bpmn:process>
 
   <bpmn:message id="Message_TicketResolved" name="ticket-resolved">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=ticketId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+
+  <bpmn:message id="Message_PriorityChanged" name="priority-changed">
     <bpmn:extensionElements>
       <zeebe:subscription correlationKey="=ticketId" />
     </bpmn:extensionElements>
@@ -111,6 +125,10 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Wait" bpmnElement="Task_WaitResolution">
         <dc:Bounds x="430" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PriorityChanged" bpmnElement="Event_PriorityChanged">
+        <dc:Bounds x="502" y="62" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="545" y="40" width="84" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_TimerSLA" bpmnElement="Timer_SLA">
         <dc:Bounds x="472" y="142" width="36" height="36" />
@@ -150,6 +168,12 @@
       <bpmndi:BPMNEdge id="Edge_ToEscalate" bpmnElement="Flow_ToEscalate">
         <di:waypoint x="490" y="178" />
         <di:waypoint x="490" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Requalified" bpmnElement="Flow_Requalified">
+        <di:waypoint x="520" y="62" />
+        <di:waypoint x="520" y="30" />
+        <di:waypoint x="460" y="30" />
+        <di:waypoint x="460" y="80" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToEscalated" bpmnElement="Flow_ToEscalated">
         <di:waypoint x="550" y="280" />

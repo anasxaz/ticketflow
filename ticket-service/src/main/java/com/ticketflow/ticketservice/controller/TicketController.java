@@ -1,6 +1,8 @@
 package com.ticketflow.ticketservice.controller;
 
 import com.ticketflow.ticketservice.dto.CreateTicketRequest;
+import com.ticketflow.ticketservice.dto.RequalifyRequest;
+import com.ticketflow.ticketservice.model.PriorityChange;
 import com.ticketflow.ticketservice.model.Ticket;
 import com.ticketflow.ticketservice.model.TicketStatus;
 import com.ticketflow.ticketservice.repository.TicketRepository;
@@ -60,6 +62,18 @@ public class TicketController {
     @PatchMapping("/{id}/assign")
     public Ticket assign(@PathVariable Long id, @RequestBody AssignRequest request){
         return ticketService.assign(id, request.agentId());
+    }
+
+    @PatchMapping("/{id}/priority")
+    public Ticket requalify(@PathVariable Long id,
+                            @Valid @RequestBody RequalifyRequest request,
+                            @RequestHeader("X-User-Email") String email) {
+        return ticketService.requalify(id, request, email);
+    }
+
+    @GetMapping("/{id}/priority-history")
+    public List<PriorityChange> priorityHistory(@PathVariable Long id) {
+        return ticketService.priorityHistory(id);
     }
 
 }

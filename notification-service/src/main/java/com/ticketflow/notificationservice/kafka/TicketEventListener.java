@@ -36,6 +36,8 @@ public class TicketEventListener {
             case "TICKET_CREATED" -> "Votre ticket #" + event.ticketId() + " \"" + event.title()
                     + "\" a été créé (priorité " + event.priority() + ").";
             case "STATUS_CHANGED" -> "Votre ticket #" + event.ticketId() + " est maintenant " + event.status() + ".";
+            case "PRIORITY_CHANGED" -> "La priorité de votre ticket #" + event.ticketId()
+                    + " a été requalifiée : " + event.priority() + ".";
             default -> "Mise à jour du ticket #" + event.ticketId();
         };
 

@@ -2,10 +2,13 @@ package com.ticketflow.ticketservice.service;
 
 import com.ticketflow.ticketservice.client.UserClient;
 import com.ticketflow.ticketservice.dto.CreateTicketRequest;
+import com.ticketflow.ticketservice.dto.RequalifyRequest;
 import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.event.TicketEventPublisher;
+import com.ticketflow.ticketservice.model.PriorityChange;
 import com.ticketflow.ticketservice.model.Ticket;
 import com.ticketflow.ticketservice.model.TicketStatus;
+import com.ticketflow.ticketservice.repository.PriorityChangeRepository;
 import com.ticketflow.ticketservice.repository.TicketRepository;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -24,6 +28,7 @@ public class TicketService {
 
     private final TicketEventPublisher eventPublisher;  //après avoir ajouté kafka pour la notification
     private final PriorityPolicy priorityPolicy;
+    private final PriorityChangeRepository priorityChangeRepository;
 
     public List<Ticket> findAll(){
         return ticketRepository.findAll();
@@ -104,5 +109,45 @@ public class TicketService {
         Ticket saved = ticketRepository.save(ticket);
         eventPublisher.publish("STATUS_CHANGED", saved);  //pour faire une notification au client
         return saved;
+    }
+
+    @Transactional
+    public Ticket requalify(Long id, RequalifyRequest request, String email) {
+        Ticket ticket = findById(id);
+
+        // 1. Securite : seul l'AGENT assigne a CE ticket peut le requalifier
+        UserResponse user;
+        try {
+            user = userClient.getUserByEmail(email);
+        } catch (FeignException.NotFound e) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No user profile for " + email);
+        }
+        if (!"AGENT".equals(user.role()) || !user.id().equals(ticket.getAgentId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the assigned agent can requalify this ticket");
+        }
+        if (ticket.getPriority() == request.priority()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ticket already has priority " + request.priority());
+        }
+
+        // 2. Audit : on garde la trace AVANT de modifier
+        priorityChangeRepository.save(PriorityChange.builder()
+                .ticketId(id)
+                .oldPriority(ticket.getPriority())
+                .newPriority(request.priority())
+                .reason(request.reason())
+                .changedBy(email)
+                .changedAt(Instant.now())
+                .build());
+
+        // 3. Modification + evenement (meme transaction : Outbox)
+        ticket.setPriority(request.priority());
+        Ticket saved = ticketRepository.save(ticket);
+        eventPublisher.publish("PRIORITY_CHANGED", saved);
+        return saved;
+    }
+
+    public List<PriorityChange> priorityHistory(Long id) {
+        findById(id);                                   // 404 si le ticket n'existe pas
+        return priorityChangeRepository.findByTicketIdOrderByChangedAtAsc(id);
     }
 }

@@ -31,6 +31,7 @@ public class TicketEventListener {
             case "STATUS_CHANGED" -> {
                 if ("CLOSED".equals(event.status())) resolve(event);
             }
+            case "PRIORITY_CHANGED" -> requalify(event);
             default -> { }   // on ignore les autres événements
         }
     }
@@ -65,5 +66,22 @@ public class TicketEventListener {
                 .join();
 
         log.info("Message ticket-resolved sent for ticket {}", event.ticketId());
+    }
+
+    private void requalify(TicketEvent event) {
+        String slaDuration = slaProperties.sla()
+                .getOrDefault(event.priority(), Duration.ofMinutes(5))
+                .toString();
+
+        camundaClient.newPublishMessageCommand()
+                .messageName("priority-changed")
+                .correlationKey(String.valueOf(event.ticketId()))
+                .variables(Map.of(
+                        "priority", event.priority(),
+                        "slaDuration", slaDuration))     // 👈 le nouveau SLA arrive AVEC le message
+                .send()
+                .join();
+
+        log.info("Ticket {} requalified to {} (new SLA {})", event.ticketId(), event.priority(), slaDuration);
     }
 }

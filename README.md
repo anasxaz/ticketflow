@@ -6,7 +6,7 @@ Plateforme **microservices** de gestion d'incidents et de demandes clients (type
 
 ## 🚧 Statut
 
-En cours de développement — **Étapes 1 à 9 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué, Observabilité : Prometheus, Grafana, Loki, Tests d'intégration Testcontainers)
+En cours de développement — **Étapes 1 à 10 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué, Observabilité : Prometheus, Grafana, Loki, Tests d'intégration Testcontainers, CI/CD GitHub Actions + déploiement Kubernetes)
 
 ## 🏗️ Architecture
 
@@ -238,9 +238,57 @@ cd ticket-service && ./mvnw test
 cd notification-service && ./mvnw test
 ```
 
+## 🔁 CI/CD (GitHub Actions)
+
+Pipeline `.github/workflows/ci.yml`, déclenché à chaque push et pull request :
+
+| Job | Rôle |
+|---|---|
+| `build` | Matrice des **7 services** compilés en parallèle (Java 21, cache Maven). Les tests d'intégration Testcontainers tournent pour `ticket-service` et `notification-service` (`mvn verify`) |
+| `docker` | Uniquement sur `main`, après `build` (`needs`) : construit et publie les **7 images** sur **GitHub Container Registry** (`ghcr.io/anasxaz/ticketflow-*`), taguées `latest` et avec le SHA du commit, avec cache des couches Docker |
+
+## ☸️ Déploiement Kubernetes
+
+Toute la plateforme (**18 pods**) se déploie sur Kubernetes à partir des images GHCR. Les manifests sont dans `k8s/`, numérotés dans l'ordre de déploiement.
+
+| Fichiers | Contenu |
+|---|---|
+| `00` → `01` | Namespace `ticketflow`, Secret MariaDB |
+| `10` → `15` | Infra : 3 MariaDB (PVC), Kafka KRaft, Keycloak (realm via ConfigMap), Camunda 8 |
+| `20` → `21` | Config Server, Eureka |
+| `30` → `34` | user, ticket (**2 replicas**), Gateway (`LoadBalancer`), notification, workflow |
+| `40` → `42` | Zipkin, Prometheus, Grafana (config et dashboards via ConfigMaps) |
+
+**Choix techniques :**
+- Les **Services K8s portent les mêmes noms** que dans Docker Compose : la config `*-docker.properties` du Config Server fonctionne **sans aucune modification**.
+- `EUREKA_INSTANCE_PREFERIPADDRESS=true` : les services s'enregistrent dans Eureka avec l'**IP du pod** (le nom d'un pod n'est pas résolvable par DNS).
+- **Probes** `startup` / `liveness` / `readiness` sur `/actuator/health/*` + **limites mémoire** sur chaque service.
+- `enableServiceLinks: false` pour Kafka et Camunda (évite que les variables `KAFKA_*` / `CAMUNDA_*` injectées par K8s soient lues comme de la config).
+
+**Vérifié :** load balancing entre les 2 replicas de `ticket-service`, **self-healing** (pod supprimé → recréé automatiquement), **scaling** (`kubectl scale`), **rolling update** sans coupure, parcours BPMN complet sur le cluster.
+
+```bash
+# Prérequis : Docker Desktop avec Kubernetes activé (kubeadm)
+kubectl apply -f k8s/00-namespace.yml -f k8s/01-secrets.yml
+kubectl create configmap keycloak-realm -n ticketflow --from-file=docker/keycloak/
+kubectl create configmap prometheus-config -n ticketflow --from-file=docker/prometheus/prometheus.yml
+kubectl create configmap grafana-datasources -n ticketflow --from-file=docker/grafana/provisioning/datasources/
+kubectl create configmap grafana-dashboards-provider -n ticketflow --from-file=docker/grafana/provisioning/dashboards/
+kubectl create configmap grafana-dashboards -n ticketflow --from-file=docker/grafana/dashboards/
+
+kubectl apply -f k8s/10-user-db.yml -f k8s/11-ticket-db.yml -f k8s/12-kafka.yml -f k8s/13-keycloak.yml -f k8s/14-notification-db.yml -f k8s/15-camunda.yml
+kubectl apply -f k8s/20-config-server.yml -f k8s/21-discovery-server.yml   # attendre 1/1
+kubectl apply -f k8s/30-user-service.yml -f k8s/31-ticket-service.yml -f k8s/32-api-gateway.yml -f k8s/33-notification-service.yml -f k8s/34-workflow-service.yml
+kubectl apply -f k8s/40-zipkin.yml -f k8s/41-prometheus.yml -f k8s/42-grafana.yml
+
+kubectl get pods -n ticketflow -w
+```
+
+Accès depuis le PC : Gateway `localhost:8087`, Keycloak `localhost:8180`, Operate `localhost:8088`, Zipkin `localhost:9411`, Prometheus `localhost:9090`, Grafana `localhost:3000`. Eureka : `kubectl port-forward svc/discovery-server 8761:8761 -n ticketflow`.
+
 ## 🛠️ Stack
 
-Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · **Prometheus · Grafana · Loki · Grafana Alloy** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose · **JUnit 5 · Testcontainers · Mockito · Awaitility**
+Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · **Prometheus · Grafana · Loki · Grafana Alloy** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose · **GitHub Actions · GHCR · Kubernetes** · **JUnit 5 · Testcontainers · Mockito · Awaitility**
 
 ## 🚀 Lancer le projet
 
@@ -325,7 +373,7 @@ POST /api/tickets
 - [x] **7. Résilience + Tracing** : circuit breaker Resilience4j avec fallback `503`, tracing distribué Micrometer + Zipkin
 - [x] **8. Observabilité** : métriques Prometheus, logs centralisés Loki + Alloy, dashboards Grafana provisionnés, lien logs → traces Zipkin
 - [x] **9. Tests d'intégration** : Testcontainers (MariaDB, Kafka), atomicité de l'Outbox, relay Kafka, idempotence du consumer
-- [ ] 10. GitLab CI + Kubernetes
+- [x] **10. CI/CD + Kubernetes** : GitHub Actions (build, tests, images sur GHCR), déploiement complet sur Kubernetes (probes, replicas, self-healing, scaling)
 - [ ] 11. Front Angular minimal + ADR
 
 ## 👤 Auteur

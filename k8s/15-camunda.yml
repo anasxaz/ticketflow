@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: camunda-data
+  namespace: ticketflow
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camunda
+  namespace: ticketflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: camunda }
+  template:
+    metadata:
+      labels: { app: camunda }
+    spec:
+      enableServiceLinks: false        # sinon K8s injecte CAMUNDA_PORT=... que Camunda lirait comme config
+      containers:
+        - name: camunda
+          image: camunda/camunda:8.9.19
+          ports:
+            - containerPort: 8080      # UI Operate + API REST
+            - containerPort: 26500     # gRPC (job workers)
+          env:
+            - { name: CAMUNDA_DATA_SECONDARY_STORAGE_TYPE, value: rdbms }
+            - { name: CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_URL, value: "jdbc:h2:file:/usr/local/camunda/data/h2db" }
+            - { name: CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_USERNAME, value: sa }
+            - { name: CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_PASSWORD, value: "" }
+            - { name: CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI, value: "true" }
+            - { name: CAMUNDA_SECURITY_AUTHORIZATIONS_ENABLED, value: "false" }
+            - { name: CAMUNDA_SECURITY_INITIALIZATION_USERS_0_USERNAME, value: demo }
+            - { name: CAMUNDA_SECURITY_INITIALIZATION_USERS_0_PASSWORD, value: demo }
+            - { name: CAMUNDA_SECURITY_INITIALIZATION_USERS_0_NAME, value: Demo }
+            - { name: CAMUNDA_SECURITY_INITIALIZATION_USERS_0_EMAIL, value: demo@demo.com }
+            - { name: CAMUNDA_SECURITY_INITIALIZATION_DEFAULTROLES_ADMIN_USERS_0, value: demo }
+          resources:
+            requests: { memory: 1Gi, cpu: 200m }
+            limits:   { memory: 2Gi }
+          readinessProbe:
+            tcpSocket: { port: 26500 }
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /usr/local/camunda/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: camunda-data
+---
+apiVersion: v1
+kind: Service                  # interne : utilise par workflow-service
+metadata:
+  name: camunda
+  namespace: ticketflow
+spec:
+  selector: { app: camunda }
+  ports:
+    - { name: http, port: 8080 }
+    - { name: grpc, port: 26500 }
+---
+apiVersion: v1
+kind: Service                  # externe : Operate sur localhost:8088
+metadata:
+  name: camunda-external
+  namespace: ticketflow
+spec:
+  type: LoadBalancer
+  selector: { app: camunda }
+  ports:
+    - port: 8088
+      targetPort: 8080

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: ticketflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0
+          args: ["start-dev", "--import-realm"]
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin }
+            - { name: KC_BOOTSTRAP_ADMIN_PASSWORD, value: admin }
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import      # dossier lu par --import-realm
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm                         # cree a partir de ton fichier JSON
+---
+apiVersion: v1
+kind: Service                  # interne : utilise par la Gateway (keycloak:8080)
+metadata:
+  name: keycloak
+  namespace: ticketflow
+spec:
+  selector: { app: keycloak }
+  ports:
+    - port: 8080
+---
+apiVersion: v1
+kind: Service                  # externe : pour obtenir un token depuis Postman (localhost:8180)
+metadata:
+  name: keycloak-external
+  namespace: ticketflow
+spec:
+  type: LoadBalancer
+  selector: { app: keycloak }
+  ports:
+    - port: 8180
+      targetPort: 8080

@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ticket-db-data
+  namespace: ticketflow
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket-db
+  namespace: ticketflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ticket-db }
+  template:
+    metadata:
+      labels: { app: ticket-db }
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: ticket_db
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mariadb-secret, key: root-password }   # lu depuis le Secret
+          readinessProbe:                       # "suis-je pret ?" (comme le healthcheck du compose)
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ticket-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket-db                # <- MEME nom que dans le compose
+  namespace: ticketflow
+spec:
+  selector: { app: ticket-db }   # envoie le trafic aux pods qui ont ce label
+  ports:
+    - port: 3306

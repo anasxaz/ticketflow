@@ -16,6 +16,9 @@ metadata:
   namespace: ticketflow
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels: { app: user-db }
   template:
@@ -33,11 +36,13 @@ spec:
             - name: MARIADB_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef: { name: mariadb-secret, key: root-password }   # lu depuis le Secret
-          readinessProbe:                       # "suis-je pret ?" (comme le healthcheck du compose)
+          readinessProbe:
             exec:
-              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+              command: [ "healthcheck.sh", "--connect", "--innodb_initialized" ]
             initialDelaySeconds: 10
-            periodSeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: data
               mountPath: /var/lib/mysql

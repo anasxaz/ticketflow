@@ -9,6 +9,7 @@ public record TicketEvent(
         Long clientId,
         String title,
         String status,
+        String priority,
         Instant occurredAt
 ) {
 }

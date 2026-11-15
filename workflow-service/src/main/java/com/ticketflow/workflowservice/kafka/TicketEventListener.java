@@ -1,13 +1,14 @@
 package com.ticketflow.workflowservice.kafka;
 
+import com.ticketflow.workflowservice.config.SlaProperties;
 import com.ticketflow.workflowservice.event.TicketEvent;
 import io.camunda.client.CamundaClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
+import java.time.Duration;
 
 import java.util.Map;
 
@@ -19,8 +20,7 @@ public class TicketEventListener {
     private final CamundaClient camundaClient;
     private final JsonMapper jsonMapper;
 
-    @Value("${ticketflow.sla-duration:PT2M}")
-    private String slaDuration;
+    private final SlaProperties slaProperties;
 
     @KafkaListener(topics = "ticket-events")
     public void onEvent(String message) {
@@ -36,6 +36,11 @@ public class TicketEventListener {
     }
 
     private void startProcess(TicketEvent event) {
+        String priority = event.priority() != null ? event.priority() : "MEDIUM";  // anciens events
+        String slaDuration = slaProperties.sla()
+                .getOrDefault(priority, Duration.ofMinutes(5))
+                .toString();                                                       // ex. "PT1M"
+
         var instance = camundaClient.newCreateInstanceCommand()
                 .bpmnProcessId("ticket-lifecycle")
                 .latestVersion()
@@ -43,12 +48,13 @@ public class TicketEventListener {
                         "ticketId", event.ticketId(),
                         "clientId", event.clientId(),
                         "title", event.title(),
+                        "priority", priority,          // visible dans Operate
                         "slaDuration", slaDuration))
                 .send()
                 .join();
 
-        log.info("Process started for ticket {} (instance {})",
-                event.ticketId(), instance.getProcessInstanceKey());
+        log.info("Process started for ticket {} (priority {}, SLA {}, instance {})",
+                event.ticketId(), priority, slaDuration, instance.getProcessInstanceKey());
     }
 
     private void resolve(TicketEvent event) {

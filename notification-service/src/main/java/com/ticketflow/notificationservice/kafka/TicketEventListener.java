@@ -33,7 +33,8 @@ public class TicketEventListener {
 
         // 2. Construire le message
         String text = switch (event.type()) {
-            case "TICKET_CREATED" -> "Votre ticket #" + event.ticketId() + " \"" + event.title() + "\" a été créé.";
+            case "TICKET_CREATED" -> "Votre ticket #" + event.ticketId() + " \"" + event.title()
+                    + "\" a été créé (priorité " + event.priority() + ").";
             case "STATUS_CHANGED" -> "Votre ticket #" + event.ticketId() + " est maintenant " + event.status() + ".";
             default -> "Mise à jour du ticket #" + event.ticketId();
         };

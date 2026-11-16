@@ -13,4 +13,4 @@ Format : [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-arch
 | [005](005-testcontainers.md) | Tests d'intégration avec Testcontainers | ✅ Accepté |
 | [006](006-eureka-sur-kubernetes.md) | Conserver Eureka sur Kubernetes | 🟡 Accepté (transitoire) |
 | [007](007-triage-hybride-llm-regles-humain.md) | Triage hybride des tickets : LLM + règles ITIL + humain | ✅ Accepté |
-| [008](008-replica-unique-relay-outbox.md) | Un seul replica de ticket-service tant que le relay Outbox n'est pas exclusif | 🟡 Accepté (transitoire) |
+| [008](008-replica-unique-relay-outbox.md) | Doublons du relay Outbox avec plusieurs replicas | Résolu |

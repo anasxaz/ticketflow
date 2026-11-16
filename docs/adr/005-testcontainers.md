@@ -1,6 +1,6 @@
 # ADR-005 : Tests d'intégration avec Testcontainers
 
-- **Statut :** ✅ Accepté
+- **Statut :** Accepté
 - **Date :** 2026-11
 - **Concerne :** `ticket-service`, `notification-service`
 
@@ -29,12 +29,12 @@ Les garanties les plus importantes du projet ne peuvent pas être vérifiées pa
 
 ## Conséquences
 
-✅ **Positives**
+**Positives**
 - Les tests utilisent **les mêmes technologies qu'en production**.
 - Ils tournent en **CI** (GitHub Actions fournit Docker sur ses runners).
 - Ils ont détecté un vrai problème d'image (Kafka 3.9.0, *advertised listener* `0.0.0.0`) corrigé en passant à `kafka-native:3.9.1`.
 
-⚠️ **Négatives**
+**Négatives**
 - **Docker est obligatoire** pour lancer les tests.
 - Plus **lents** que des tests unitaires (démarrage des containers, ~10-20 s la première fois).
 - Les contrats entre services (OpenFeign) ne sont pas testés : des **tests de contrat** (Spring Cloud Contract, Pact) seraient l'étape suivante.

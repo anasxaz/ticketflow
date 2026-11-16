@@ -1,6 +1,6 @@
 # ADR-006 : Conserver Eureka sur Kubernetes
 
-- **Statut :** 🟡 Accepté (transitoire)
+- **Statut :** Accepté (transitoire)
 - **Date :** 2026-11
 - **Concerne :** `discovery-server`, tous les services, manifests `k8s/`
 
@@ -25,11 +25,11 @@ Lors du passage à **Kubernetes**, deux mécanismes de découverte existent : Eu
 
 ## Conséquences
 
-✅ **Positives**
+**Positives**
 - **Zéro changement** de code ou de configuration entre Compose et Kubernetes.
 - Le load balancing entre replicas fonctionne (vérifié : 2 replicas de `ticket-service`, requêtes réparties).
 
-⚠️ **Négatives**
+**Négatives**
 - **Double découverte** de services : redondant, et un composant de plus à faire tourner.
 - Délai de détection d'un pod mort (heartbeat Eureka) plus long que celui de Kubernetes (readiness probe).
 - **À revoir** : si Kubernetes devient la seule cible de déploiement, remplacer Eureka par les Services Kubernetes (nouvel ADR).

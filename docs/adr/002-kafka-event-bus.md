@@ -1,6 +1,6 @@
 # ADR-002 : Apache Kafka comme bus d'événements
 
-- **Statut :** ✅ Accepté
+- **Statut :** Accepté
 - **Date :** 2026-11
 - **Concerne :** `ticket-service` (producteur), `notification-service` et `workflow-service` (consommateurs)
 
@@ -25,13 +25,13 @@ Publier les événements dans un **topic Kafka** `ticket-events` (mode **KRaft**
 
 ## Conséquences
 
-✅ **Positives**
+**Positives**
 - **Découplage** : `ticket-service` ne connaît pas ses consommateurs ; ajouter un service = ajouter un consumer group.
 - Chaque consumer group lit **tout** le topic **indépendamment** (notification et workflow reçoivent les mêmes événements).
 - **Ordre garanti par partition** : la clé `ticketId` envoie tous les événements d'un ticket dans la même partition.
 - Les événements sont **conservés** : on peut rejouer l'historique (nouveau service, bug corrigé).
 
-⚠️ **Négatives**
+**Négatives**
 - Infrastructure plus lourde que RabbitMQ (un broker à opérer).
 - Livraison **at-least-once** → consumers **idempotents** obligatoires.
 - **Cohérence à terme** (*eventual consistency*) : juste après la création, le ticket n'a pas encore d'agent (`agentId: null`).

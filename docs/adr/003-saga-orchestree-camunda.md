@@ -1,6 +1,6 @@
 # ADR-003 : Saga orchestrée avec Camunda 8
 
-- **Statut :** ✅ Accepté
+- **Statut :** Accepté
 - **Date :** 2026-11
 - **Concerne :** `workflow-service`, Camunda 8 (Zeebe), processus BPMN `ticket-lifecycle`
 
@@ -32,13 +32,13 @@ Orchestrer le processus avec **Camunda 8** et un modèle **BPMN** (`ticket-lifec
 
 ## Conséquences
 
-✅ **Positives**
+**Positives**
 - Le processus est **visible** (diagramme BPMN) et **compréhensible par le métier**.
 - **Supervision** de chaque instance dans **Operate** (où en est le ticket, incidents, variables), avec **retry** depuis l'interface.
 - Timers, corrélation de messages, retries et erreurs BPMN sont fournis par le moteur.
 - Modifier le processus = modifier le BPMN, sans toucher à la logique des autres services.
 
-⚠️ **Négatives**
+**Négatives**
 - Composant d'infrastructure **lourd** (~1-2 Go de RAM).
 - **Licence** : Camunda 8 Self-Managed est gratuit en développement, mais la production nécessite une licence.
 - `workflow-service` dépend de `ticket-service` et `user-service` (appels OpenFeign) pour exécuter les tâches.

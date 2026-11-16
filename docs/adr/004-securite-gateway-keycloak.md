@@ -1,6 +1,6 @@
 # ADR-004 : Sécurité centralisée à la Gateway avec Keycloak
 
-- **Statut :** ✅ Accepté
+- **Statut :** Accepté
 - **Date :** 2026-11
 - **Concerne :** `api-gateway`, Keycloak, tous les services exposés
 
@@ -25,12 +25,12 @@ L'API doit être protégée : seuls les utilisateurs authentifiés peuvent l'app
 
 ## Conséquences
 
-✅ **Positives**
+**Positives**
 - **Un seul point d'entrée** sécurisé : les services métier restent simples.
 - Validation **sans appel réseau** à Keycloak à chaque requête (clés JWKS mises en cache).
-- Standard (OAuth2 / OIDC) : le futur front Angular utilisera le flux **Authorization Code + PKCE**.
+- Standard (OAuth2 / OIDC) : le front Angular utilise le flux **Authorization Code + PKCE**.
 
-⚠️ **Négatives**
+**Négatives**
 - Les services internes **font confiance au réseau** : un appel qui contourne la Gateway n'est pas vérifié. En production : valider aussi le JWT dans chaque service, et/ou **mTLS** et **NetworkPolicies** Kubernetes.
 - Keycloak devient une dépendance critique pour obtenir un token (mais pas pour valider ceux déjà émis).
 - Un token reste valide jusqu'à son expiration, même après un changement de rôle (durée de vie courte recommandée).

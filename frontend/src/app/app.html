@@ -1,18 +1,23 @@
-<header>
-  <strong>🎫 TicketFlow</strong>
-  <span>Connecté : {{ auth.username }} ({{ auth.roles.join(', ') }})</span>
-  <button (click)="auth.logout()">Se déconnecter</button>
+<header class="topbar">
+  <a class="brand gradient-text" routerLink="/">TicketFlow</a>
+
+  <nav class="nav">
+    @if (auth.hasRole('CLIENT')) {
+      <a class="pill" routerLink="/client/new" routerLinkActive="active">Nouveau ticket</a>
+      <a class="pill violet" routerLink="/client/tickets" routerLinkActive="active">Mes tickets</a>
+      <a class="pill purple" routerLink="/client/notifications" routerLinkActive="active">Notifications</a>
+    }
+    @if (auth.hasRole('AGENT')) {
+      <a class="pill violet" routerLink="/agent" routerLinkActive="active">Tickets</a>
+    }
+  </nav>
+
+  <span class="spacer"></span>
+  <span class="user">{{ auth.username }}</span>
+  <button class="pill red" (click)="auth.logout()">Se déconnecter</button>
 </header>
+<div class="gradient-line"></div>
 
-<main>
-  <button (click)="loadNotifications()">Tester l'API : mes notifications</button>
-
-  @if (notifications(); as list) {
-    <p>✅ {{ list.length }} notification(s) reçue(s) via la Gateway</p>
-  }
-  @if (error()) {
-    <p>❌ Erreur : {{ error() }}</p>
-  }
+<main class="container">
+  <router-outlet />
 </main>
-
-<router-outlet />

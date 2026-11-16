@@ -82,4 +82,9 @@ public class TicketController {
         return ticketService.applyHumanTriage(id, request);
     }
 
+    @GetMapping("/mine")
+    public List<Ticket> mine(@RequestHeader("X-User-Email") String email) {
+        return ticketService.findMine(email);
+    }
+
 }

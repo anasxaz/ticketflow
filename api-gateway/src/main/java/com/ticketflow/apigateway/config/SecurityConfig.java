@@ -23,10 +23,20 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**", "/error").permitAll()
+
+                        // Endpoints INTERNES (appeles par workflow-service sans passer par la Gateway)
+                        .requestMatchers("/api/tickets/*/triage", "/api/tickets/*/assign").denyAll()
+
+                        // Client
                         .requestMatchers(HttpMethod.POST, "/api/tickets").hasRole("CLIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/tickets/mine").hasRole("CLIENT")   // AVANT /api/tickets/**
+
+                        // Agent
                         .requestMatchers(HttpMethod.PATCH, "/api/tickets/*/status").hasRole("AGENT")
+                        .requestMatchers(HttpMethod.PATCH, "/api/tickets/*/priority").hasRole("AGENT")
                         .requestMatchers(HttpMethod.GET, "/api/tickets/**").hasRole("AGENT")
                         .requestMatchers("/api/users/**").hasRole("AGENT")
+
                         .requestMatchers("/api/notifications/**").authenticated()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth

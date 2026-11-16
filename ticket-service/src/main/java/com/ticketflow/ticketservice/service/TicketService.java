@@ -211,4 +211,15 @@ public class TicketService {
         ticket.setBlocked(blocked);
         ticket.setPriority(priorityPolicy.compute(category, blocked, customerType));
     }
+
+    /** Les tickets du client connecte (identite tiree du token, via la Gateway). */
+    public List<Ticket> findMine(String email) {
+        UserResponse user;
+        try {
+            user = userClient.getUserByEmail(email);
+        } catch (FeignException.NotFound e) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No user profile for " + email);
+        }
+        return ticketRepository.findByClientIdOrderByCreatedAtDesc(user.id());
+    }
 }

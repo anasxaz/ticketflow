@@ -1,468 +1,342 @@
-# 🎫 TicketFlow
+# TicketFlow
 
-Plateforme **microservices** de gestion d'incidents et de demandes clients (type opérateur télécom), construite avec **Spring Boot**, **Spring Cloud** et orchestrée par **Camunda 8**.
+[![CI](https://github.com/anasxaz/ticketflow/actions/workflows/ci.yml/badge.svg)](https://github.com/anasxaz/ticketflow/actions/workflows/ci.yml)
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4-6DB33F)
+![Camunda](https://img.shields.io/badge/Camunda-8-FC5D0D)
+![Angular](https://img.shields.io/badge/Angular-frontend-DD0031)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-deployed-326CE5)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-> Cycle de vie d'un ticket : `OPEN → ASSIGNED → CLOSED` · ou `ESCALATED` si le SLA est dépassé · ou `REJECTED` si aucun agent n'est disponible
->
-> **Triage intelligent** : le client décrit son problème en texte libre, un **LLM** (Spring AI) en extrait les faits, des **règles ITIL** calculent la priorité et le SLA, et un **humain** trie ou corrige quand c'est nécessaire.
+Plateforme de gestion d'incidents client (type opérateur télécom), construite en **microservices** avec Spring Boot, Spring Cloud, Kafka et Camunda 8, et déployée sur Kubernetes.
 
-## 🚧 Statut
+Un client décrit son problème en texte libre. Un **LLM** en extrait les faits, des **règles ITIL** calculent la priorité et le délai contractuel (SLA), un **workflow BPMN** assigne un agent, surveille le SLA et escalade si besoin, et le client est notifié à chaque étape.
 
-En cours de développement — **Étapes 1 à 11 terminées ✅** (MVP, Config Server + OpenFeign, Kafka + Notifications, Transactional Outbox, Sécurité Keycloak, Workflow Camunda : Saga + escalade SLA, Résilience + Tracing distribué, Observabilité : Prometheus, Grafana, Loki, Tests d'intégration Testcontainers, CI/CD GitHub Actions + déploiement Kubernetes, **Triage hybride IA + règles + humain**). Prochaine étape : front Angular.
+![Espace client](docs/images/client-tickets.png)
 
-## 🏗️ Architecture
+---
 
-```mermaid
-flowchart LR
-    C[Client / Postman] -->|1. login| KC[Keycloak<br/>OAuth2 / JWT]
-    C -->|2. Bearer JWT :8087| GW[API Gateway<br/>vérifie JWT + rôles]
-    GW -. clés publiques JWKS .-> KC
+## Sommaire
 
-    GW -->|lb://user-service| US[User Service]
-    GW -->|lb://ticket-service| TS[Ticket Service]
-    GW -->|lb://notification-service| NS[Notification Service]
+- [Fonctionnalités](#fonctionnalités)
+- [Architecture](#architecture)
+- [Choix techniques](#choix-techniques)
+- [Cycle de vie d'un ticket](#cycle-de-vie-dun-ticket)
+- [Triage intelligent](#triage-intelligent)
+- [Fiabilité](#fiabilité)
+- [Sécurité](#sécurité)
+- [Observabilité](#observabilité)
+- [Tests](#tests)
+- [CI/CD et déploiement](#cicd-et-déploiement)
+- [Démarrage](#démarrage)
+- [API](#api)
+- [Structure du dépôt](#structure-du-dépôt)
+- [Limites connues](#limites-connues)
+- [Auteur](#auteur)
 
-    TS -->|OpenFeign + circuit breaker : client existe ?| US
-    TS -->|Spring AI + circuit breaker : classer le texte| LLM[LLM Groq<br/>gpt-oss-20b]
-    TS --> TDB[(MariaDB<br/>ticket_db<br/>+ outbox_events)]
-    TDB -->|Outbox Relay| K[(Kafka<br/>ticket-events)]
-    K -->|consomme| NS
-    K -->|consomme| WS[Workflow Service<br/>workers Camunda]
-    WS <-->|instances, jobs, messages| CA[Camunda 8<br/>Zeebe + Operate]
-    WS -->|OpenFeign : agents| US
-    WS -->|OpenFeign : assign / status| TS
+---
 
-    US --> UDB[(MariaDB<br/>user_db)]
-    NS --> NDB[(MariaDB<br/>notification_db)]
+## Fonctionnalités
 
-    CS[Config Server] -. configuration .-> US
-    CS -. configuration .-> TS
-    CS -. configuration .-> NS
-    CS -. configuration .-> GW
-    CS -. configuration .-> WS
+**Client**
+- Création d'un ticket en texte libre, qualifié automatiquement (ou via un formulaire catégorie + urgence).
+- Suivi de ses tickets (priorité, statut, source de qualification) et historique des notifications.
 
-    EU[Eureka<br/>Discovery Server]
-    US -. enregistrement .-> EU
-    TS -. enregistrement .-> EU
-    NS -. enregistrement .-> EU
-    WS -. enregistrement .-> EU
-    GW -. découverte .-> EU
+**Agent**
+- File de tickets triée par priorité, filtres « à traiter », « en cours », « tous ».
+- Requalification de la priorité avec motif obligatoire et historique d'audit.
+- Résolution d'un ticket, qui termine le processus métier.
 
-    ZK[Zipkin<br/>traces]
-    GW -. spans .-> ZK
-    TS -. spans .-> ZK
-    US -. spans .-> ZK
-```
+**Système**
+- Priorité calculée par une matrice impact x urgence, ajustée selon le contrat du client.
+- SLA par priorité, escalade automatique en cas de dépassement.
+- Tri humain dans Camunda Tasklist quand l'IA n'est pas sûre ou indisponible.
+- Assignation automatique d'un agent, compensation si aucun agent n'est disponible.
 
-| Service | Rôle | Port |
-|---|---|---|
-| `config-server` | Configuration centralisée (profils `default` / `docker`) | 8888 |
-| `discovery-server` | Annuaire des services (Eureka) | 8761 |
-| `api-gateway` | Point d'entrée unique : routage, validation JWT, contrôle des rôles | 8087 |
-| `keycloak` | Serveur d'identité (OAuth2 / OpenID Connect), realm importé au démarrage | 8180 |
-| `user-service` | Gestion des clients et agents | 8081 |
-| `ticket-service` | Gestion des tickets, publication d'événements via Outbox | 8082 |
-| `notification-service` | Notifications clients (consumer Kafka idempotent) | 8083 |
-| `workflow-service` | Orchestration du cycle de vie (Camunda) : assignation, SLA, compensation | 8084 |
-| `camunda` | Moteur de workflow Zeebe + Operate + Tasklist (H2 en dev) | 8088 / 26500 |
-| `kafka` | Broker de messages (mode KRaft, sans Zookeeper) | 9092 |
-| `kafka-ui` | Interface web pour Kafka | 8090 |
-| `zipkin` | Collecte et visualisation des traces distribuées | 9411 |
-| `prometheus` | Collecte des métriques (scraping de `/actuator/prometheus`) | 9090 |
-| `grafana` | Dashboards (métriques Prometheus + logs Loki), provisionnés as code | 3000 |
-| `loki` | Stockage et recherche des logs centralisés | 3100 |
-| `alloy` | Collecteur des logs Docker → Loki | 12345 |
-
-**Principes :**
-- **Database per Service** : chaque service possède sa propre base MariaDB.
-- **Communication synchrone** (OpenFeign) quand une réponse immédiate est nécessaire : ticket-service vérifie que le client existe et a le rôle `CLIENT`.
-- **Communication asynchrone** (Kafka) pour découpler les services : la création d'un ticket ne dépend pas de la disponibilité du service de notifications.
-- **Transactional Outbox** : le ticket et son événement sont écrits dans la **même transaction** (table `outbox_events`). Un relay planifié publie ensuite vers Kafka : aucun événement perdu, même si Kafka est indisponible.
-- **Idempotence** : la livraison est *at-least-once*, donc chaque événement porte un `eventId` unique et notification-service ignore les doublons.
-- **Orchestration** (Camunda) pour le processus métier long : le cycle de vie d'un ticket est un modèle **BPMN** visible et versionné, pas du code dispersé entre services.
-- **Décisions documentées** : chaque choix d'architecture est expliqué dans un **ADR** (contexte, décision, alternatives, conséquences) → [`docs/adr/`](docs/adr/README.md).
-
-## 🔐 Sécurité
-
-- **Keycloak** émet des JWT signés (RS256). Le realm `ticketflow` (rôles, client, utilisateurs de démo) est **importé automatiquement** au démarrage.
-- **La Gateway est un OAuth2 Resource Server** : elle vérifie la signature du JWT avec les clés publiques de Keycloak (JWKS), sans l'appeler à chaque requête, puis applique les règles de rôles.
-- **L'identité vient du token, jamais du body** : la Gateway supprime tout header `X-User-*` envoyé par le client, puis injecte `X-User-Email` et `X-User-Roles` extraits du JWT. ticket-service en déduit le `clientId` ; un client ne peut pas créer de ticket au nom d'un autre.
-- **401** = pas de token ou token invalide · **403** = authentifié mais rôle insuffisant.
-
-| Requête | Rôle requis |
+| Espace agent | Processus dans Camunda Operate |
 |---|---|
-| `POST /api/tickets` | `CLIENT` |
-| `GET /api/tickets/**` | `AGENT` |
-| `PATCH /api/tickets/{id}/status` | `AGENT` |
-| `PATCH /api/tickets/{id}/priority` | `AGENT` **assigné à ce ticket** (vérifié par ticket-service) |
-| `/api/users/**` | `AGENT` |
-| `GET /api/notifications` | authentifié (un `CLIENT` ne voit que les siennes, un `AGENT` voit tout) |
+| ![Espace agent](docs/images/agent-space.png) | ![Processus BPMN](docs/images/operate-bpmn.png) |
 
-**Utilisateurs de démo**
-| Utilisateur | Mot de passe | Rôle |
-|---|---|---|
-| `youssef` | `youssef123` | `CLIENT` |
-| `anas` | `anas123` | `AGENT` |
+---
 
-**Obtenir un token**
-```http
-POST http://localhost:8180/realms/ticketflow/protocol/openid-connect/token
-Content-Type: application/x-www-form-urlencoded
-
-grant_type=password&client_id=ticketflow-app&username=youssef&password=youssef123
-```
-Puis appeler l'API avec le header `Authorization: Bearer <access_token>`.
-
-## 🔄 Flux : création d'un ticket
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant GW as API Gateway
-    participant TS as Ticket Service
-    participant US as User Service
-    participant DB as ticket_db
-    participant R as Outbox Relay
-    participant K as Kafka
-    participant NS as Notification Service
-
-    C->>GW: POST /api/tickets (Bearer JWT)
-    GW->>GW: JWT valide + rôle CLIENT ✅
-    GW->>TS: route + X-User-Email (tiré du JWT)
-    TS->>US: GET /api/users/by-email (OpenFeign)
-    US-->>TS: user, rôle CLIENT ✅
-    TS->>DB: BEGIN · INSERT ticket + INSERT outbox_event · COMMIT
-    TS-->>C: 201 Created
-    loop toutes les 2 s
-        R->>DB: événements non envoyés ?
-        R->>K: TICKET_CREATED (clé = ticketId)
-        R->>DB: marquer sent_at
-    end
-    K->>NS: TICKET_CREATED
-    NS->>NS: eventId déjà traité ? sinon save + notifier
-```
-
-## 🧠 Triage intelligent : LLM + règles + humain
-
-**Problème métier :** si le client choisit lui-même la priorité, tout le monde met « urgent » et le SLA perd son sens. Comme dans un vrai service client (méthode **ITIL**), la priorité est **déduite de faits**, ajustée selon le **contrat**, et **corrigeable** par un humain.
+## Architecture
 
 ```mermaid
 flowchart LR
-    T[Texte libre du client] --> L[① LLM<br/>Spring AI + Groq]
-    F[Formulaire<br/>catégorie + bloqué] --> R
-    L -->|faits + confiance ≥ 0,7| R[② Règles ITIL<br/>PriorityPolicy]
-    L -. pas sûr / invalide / en panne .-> H[③ Tri humain<br/>tâche Camunda]
-    H --> R
-    R --> P[Priorité + SLA]
-    P -. après diagnostic .-> Q[③ Requalification<br/>par l'agent + historique]
+    U[Navigateur<br/>Angular] -->|login OIDC + PKCE| KC[Keycloak]
+    U -->|/api + JWT| NG[nginx]
+    NG --> GW[API Gateway<br/>validation JWT, rôles]
+    GW -. JWKS .-> KC
+
+    GW --> US[user-service]
+    GW --> TS[ticket-service]
+    GW --> NS[notification-service]
+
+    TS -->|OpenFeign + circuit breaker| US
+    TS -->|Spring AI + circuit breaker| LLM[LLM<br/>Groq]
+    TS --> TDB[(MariaDB<br/>tickets + outbox)]
+    TDB -->|relay Outbox| K[(Kafka<br/>ticket-events)]
+    K --> NS
+    K --> WS[workflow-service]
+    WS <-->|messages, jobs| CA[Camunda 8<br/>Zeebe, Operate, Tasklist]
+    WS -->|OpenFeign| TS
+    WS -->|OpenFeign| US
+
+    US --> UDB[(MariaDB<br/>users)]
+    NS --> NDB[(MariaDB<br/>notifications)]
 ```
+
+| Service | Responsabilité | Port |
+|---|---|---|
+| `api-gateway` | Point d'entrée unique, validation JWT, règles par rôle | 8087 |
+| `user-service` | Clients et agents, type de contrat (`PARTICULIER` / `ENTREPRISE`) | 8081 |
+| `ticket-service` | Tickets, triage (LLM + règles), requalification, Outbox | 8082 |
+| `notification-service` | Notifications client (consumer Kafka idempotent) | 8083 |
+| `workflow-service` | Orchestration Camunda : assignation, SLA, escalade, tri humain | 8084 |
+| `config-server` / `discovery-server` | Configuration centralisée / annuaire Eureka | 8888 / 8761 |
+| `frontend` | Application Angular servie par nginx | 4200 |
+| Infrastructure | Keycloak, Kafka (KRaft), Camunda 8, MariaDB x3, Zipkin, Prometheus, Grafana, Loki | |
+
+Chaque service possède sa propre base (*database per service*). Les échanges synchrones (OpenFeign) sont réservés aux besoins de réponse immédiate ; le reste passe par des événements Kafka.
+
+---
+
+## Choix techniques
+
+Chaque décision structurante est documentée dans un **ADR** (contexte, décision, alternatives, conséquences) : [`docs/adr/`](docs/adr/README.md).
+
+| ADR | Décision |
+|---|---|
+| [001](docs/adr/001-transactional-outbox.md) | Transactional Outbox plutôt que *dual write* |
+| [002](docs/adr/002-kafka-event-bus.md) | Kafka comme bus d'événements |
+| [003](docs/adr/003-saga-orchestree-camunda.md) | Saga orchestrée avec Camunda 8 |
+| [004](docs/adr/004-securite-gateway-keycloak.md) | Sécurité centralisée à la Gateway avec Keycloak |
+| [005](docs/adr/005-testcontainers.md) | Tests d'intégration avec Testcontainers |
+| [006](docs/adr/006-eureka-sur-kubernetes.md) | Conserver Eureka sur Kubernetes |
+| [007](docs/adr/007-triage-hybride-llm-regles-humain.md) | Triage hybride : LLM + règles + humain |
+| [008](docs/adr/008-replica-unique-relay-outbox.md) | Doublons du relay Outbox avec plusieurs replicas (résolu) |
+
+---
+
+## Cycle de vie d'un ticket
+
+Le processus `ticket-lifecycle` est un modèle BPMN exécuté par Camunda 8, et ses étapes par des *job workers* Spring.
+
+```mermaid
+flowchart LR
+    S((Ticket créé<br/>message)) --> G{Tri humain ?}
+    G -->|oui| TR[Trier le ticket<br/>Tasklist] --> AP[Appliquer le tri] --> A
+    G -->|non| A[Assigner un agent]
+    A --> W[Attendre la résolution]
+    W -->|ticket-resolved| R((Résolu))
+    W -. priority-changed .-> W
+    W -. SLA dépassé, non interrompant .-> E[Escalader] --> X((Escaladé))
+    A -. erreur NO_AGENT .-> J[Rejeter] --> RJ((Rejeté))
+```
+
+| Scénario | Mécanisme BPMN |
+|---|---|
+| Démarrage idempotent | *Message start event* corrélé sur `ticketId` : un doublon ne crée pas de seconde instance |
+| Tri humain | Passerelle sur `needsReview`, puis tâche utilisateur avec formulaire Camunda |
+| SLA dépassé | *Boundary timer* **non interrompant** : l'escalade part en parallèle, le ticket reste à résoudre |
+| Requalification | *Boundary message* interrompant : l'attente est relancée avec le nouveau SLA |
+| Résolution | *Receive task* corrélée par `ticketId`, déclenchée par le passage au statut `CLOSED` |
+| Aucun agent disponible | Erreur BPMN `NO_AGENT` et chemin de compensation (ticket `REJECTED`) |
+
+Une erreur métier suit le chemin prévu dans le modèle ; une panne technique déclenche des *retries*, puis un incident visible et relançable dans Operate.
+
+---
+
+## Triage intelligent
+
+Si le client choisit lui-même sa priorité, tout devient urgent. Comme dans un service client réel (ITIL), la priorité est **déduite de faits**, ajustée selon le **contrat**, et **corrigeable** par un humain.
 
 | Couche | Rôle | Implémentation |
 |---|---|---|
-| **① Comprendre** | Extraire des **faits** du texte : catégorie, client bloqué, confiance | `ChatClient` + sortie structurée (`.entity()`), derrière le **circuit breaker** (timeout 5 s) |
-| **② Décider** | Calculer la **priorité** (toujours les mêmes règles) | Matrice **impact × urgence**, **+1 cran** pour un client `ENTREPRISE` (type issu du contrat, user-service) |
-| **③ Vérifier / corriger** | Rattraper les erreurs et les abus | Tâche **« Trier le ticket »** dans Tasklist ; **requalification** par l'agent assigné (motif obligatoire, historique, SLA relancé) |
+| Comprendre | Extraire catégorie, blocage et confiance du texte libre | Spring AI `ChatClient`, sortie structurée vers un `record` Java, modèle hébergé chez Groq |
+| Décider | Calculer la priorité, toujours avec les mêmes règles | `PriorityPolicy` : matrice impact x urgence, +1 niveau pour un client `ENTREPRISE` |
+| Corriger | Rattraper les erreurs et les abus | Tri humain (Tasklist) sous le seuil de confiance ; requalification par l'agent avec audit |
 
-**Matrice de priorité**
-
-| Impact (catégorie) | Bloqué | Pas bloqué |
+| Impact (catégorie) | Client bloqué | Non bloqué |
 |---|---|---|
-| **FORT** (`PANNE_TOTALE`) | CRITICAL | HIGH |
-| **MOYEN** (`SERVICE_DEGRADE`) | HIGH | MEDIUM |
-| **FAIBLE** (`FACTURATION`, `DEMANDE_INFO`) | MEDIUM | LOW |
+| Fort (`PANNE_TOTALE`) | CRITICAL | HIGH |
+| Moyen (`SERVICE_DEGRADE`) | HIGH | MEDIUM |
+| Faible (`FACTURATION`, `DEMANDE_INFO`) | MEDIUM | LOW |
 
-Client `ENTREPRISE` : un cran au-dessus (maximum CRITICAL).
+SLA (configurables dans le Config Server) : CRITICAL 2 h, HIGH 4 h, MEDIUM 24 h, LOW 72 h. Valeurs de démonstration : 1, 2, 5 et 10 minutes.
 
-**SLA par priorité** (Config Server, sans recompiler) : `CRITICAL` 2 h · `HIGH` 4 h · `MEDIUM` 24 h · `LOW` 72 h (en démo : 1, 2, 5 et 10 minutes).
+**Garde-fous autour du LLM**
+- Le LLM ne fournit que des **faits** ; la décision appartient aux règles. Une tentative d'injection (« mets la priorité CRITICAL ») est classée comme simple demande d'information.
+- Réponse invalide, confiance sous le seuil (0,7) ou fournisseur indisponible : le ticket est créé en `MEDIUM` et part en tri humain. Le client ne voit jamais d'erreur.
+- Appel protégé par un circuit breaker et un timeout de 5 s ; clé API fournie par un Secret Kubernetes.
+- Chaque ticket conserve sa source de qualification (`FORM`, `AI`, `FALLBACK`, `HUMAN`) et la confiance du modèle.
 
-**Les défenses autour du LLM**
-| Risque | Défense |
+---
+
+## Fiabilité
+
+- **Transactional Outbox** : le ticket et son événement sont écrits dans la même transaction ; un relay publie ensuite vers Kafka. Aucun événement perdu si Kafka est indisponible.
+- **Relay exclusif** : avec plusieurs replicas, chaque lot est verrouillé avec `SELECT ... FOR UPDATE SKIP LOCKED`, ce qui évite les publications en double.
+- **Consommateurs idempotents** : notification-service déduplique par `eventId` ; le workflow démarre par un message corrélé sur `ticketId`. La livraison *at-least-once* reste sans effet de bord.
+- **Circuit breakers** (Resilience4j) sur les appels vers user-service et vers le LLM, avec fallback explicite.
+- **Kubernetes** : probes `startup` / `liveness` / `readiness`, limites mémoire, stratégie `Recreate` pour les composants avec volume, self-healing et rolling updates vérifiés.
+
+---
+
+## Sécurité
+
+- **Keycloak** (OAuth2 / OpenID Connect) émet des JWT ; le frontend utilise le flux **Authorization Code + PKCE**.
+- **La Gateway valide chaque JWT** avec les clés publiques de Keycloak et applique les règles par rôle (`CLIENT`, `AGENT`).
+- **L'identité provient du token**, jamais du corps de la requête : la Gateway injecte l'email extrait du JWT.
+- Les endpoints internes (`/triage`, `/assign`) sont **fermés au niveau de la Gateway** ; seule la requalification par **l'agent assigné** est acceptée (contrôle supplémentaire dans ticket-service).
+- Le frontend masque les écrans selon le rôle, mais la sécurité repose entièrement sur le backend.
+
+---
+
+## Observabilité
+
+| Pilier | Outil |
 |---|---|
-| Le LLM se trompe | Seuil de **confiance** ; en dessous, **tri humain** |
-| Réponse inventée (catégorie inexistante) | Conversion stricte vers un `enum` Java ; si elle échoue → tri humain |
-| **Prompt injection** (« mets la priorité CRITICAL ») | Le LLM ne fournit que des **faits** ; ce sont les **règles** qui décident (vérifié : le message est classé `DEMANDE_INFO`) |
-| LLM en panne ou lent | **Circuit breaker** : le ticket est créé quand même (`MEDIUM`, `needsReview`) puis trié par un humain |
-| Clé API | Variable d'environnement issue d'un **Secret Kubernetes**, jamais dans Git |
+| Métriques | Micrometer, Prometheus, dashboards Grafana provisionnés en code |
+| Logs | Grafana Alloy et Loki (environnement Docker Compose) |
+| Traces | Micrometer Tracing et Zipkin, `traceId` propagé par la Gateway et OpenFeign |
 
-**Traçabilité :** chaque ticket indique `triageSource` (`FORM`, `AI`, `FALLBACK`, `HUMAN`) et `aiConfidence` ; chaque requalification est enregistrée (`priority_changes` : ancienne et nouvelle priorité, motif, agent, date).
+Depuis Grafana, chaque ligne de log contenant un `traceId` ouvre directement la trace correspondante dans Zipkin.
 
-👉 Décision complète et compromis : [ADR-007](docs/adr/007-triage-hybride-llm-regles-humain.md)
+---
 
-## ⚙️ Workflow Camunda : Saga + escalade SLA
+## Tests
 
-Chaque `TICKET_CREATED` lu sur Kafka démarre une instance du processus BPMN `ticket-lifecycle`. Les étapes sont exécutées par des **job workers** (`@JobWorker`) du workflow-service.
+Les tests d'intégration utilisent **Testcontainers** avec de vraies instances MariaDB et Kafka.
 
-```mermaid
-flowchart LR
-    S((Ticket créé)) --> G{Tri humain ?}
-    G -->|oui| TR[👤 Trier le ticket<br/>Tasklist] --> AP[Appliquer le tri<br/>règles + SLA] --> A
-    G -->|non| A[Assigner un agent]
-    A --> W[Attendre la résolution]
-    W -->|message ticket-resolved| R((Résolu))
-    W -. message priority-changed .-> W
-    W -. timer SLA dépassé .-> E[Escalader le ticket] --> X((Escaladé))
-    A -. erreur NO_AGENT .-> J[Rejeter le ticket] --> RJ((Rejeté))
-```
-
-| Scénario | Mécanisme BPMN | Résultat |
-|---|---|---|
-| Agent ferme le ticket à temps | **Receive task** + message `ticket-resolved` (corrélé par `ticketId`, envoyé quand `STATUS_CHANGED → CLOSED`) | Timer annulé, fin **Résolu** |
-| SLA dépassé | **Boundary timer** interrompant (`slaDuration` **calculé depuis la priorité**) | Ticket `ESCALATED`, fin **Escaladé** |
-| L'IA n'est pas sûre (ou est en panne) | **Passerelle** sur `needsReview` + **tâche utilisateur** avec formulaire Camunda | Un agent de tri choisit la catégorie dans Tasklist, les règles calculent priorité et SLA |
-| L'agent requalifie la priorité | **Boundary message** `priority-changed` qui interrompt l'attente puis la relance | L'ancien timer est annulé, un nouveau démarre avec le nouveau SLA |
-| Aucun agent disponible | **Erreur BPMN** `NO_AGENT` levée par le worker + **chemin de compensation** | Ticket `REJECTED`, client notifié, fin **Rejeté** |
-
-**Points clés :**
-- **Erreur métier ≠ panne technique** : une erreur BPMN suit la branche prévue ; une exception technique (service indisponible) déclenche des **retries** (3), puis un **incident** visible et relançable dans Operate.
-- Chaque changement de statut passe par ticket-service → Outbox → Kafka : le client est notifié quel que soit le chemin.
-- Le BPMN est déployé automatiquement au démarrage (`@Deployment`) et **versionné** par Camunda.
-
-## 🛡️ Résilience et observabilité
-
-**Circuit breaker (Resilience4j)** sur l'appel OpenFeign ticket-service → user-service :
-
-```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> CLOSED
-    CLOSED --> OPEN: ≥ 50 % d'échecs (fenêtre de 5 appels)
-    OPEN --> HALF_OPEN: après 10 s
-    HALF_OPEN --> CLOSED: 2 appels réussis
-    HALF_OPEN --> OPEN: échec
-```
-
-- **Timeout de 3 s** : un appel trop lent compte comme un échec.
-- **Fallback** (`FallbackFactory`) : si user-service est indisponible, la création de ticket répond **`503` immédiatement** avec un message clair, au lieu de bloquer les threads de ticket-service (pas de panne en cascade).
-- Les erreurs **4xx** (ex. utilisateur introuvable) sont des réponses métier : elles **ne comptent pas** comme des pannes et sont renvoyées telles quelles.
-
-**Tracing distribué (Micrometer Tracing + Zipkin)** :
-- Chaque requête reçoit un **traceId**, propagé par la Gateway et par Feign (`feign-micrometer`) : le trajet `api-gateway → ticket-service → user-service` s'affiche sur une seule frise dans Zipkin.
-- Le traceId apparaît aussi dans les logs (`[traceId-spanId]`), ce qui permet de relier les logs de plusieurs services.
-- Échantillonnage à 100 % en dev ; les tâches `@Scheduled` (relay Outbox) sont exclues du tracing pour éviter le bruit.
-
-## 📊 Observabilité : métriques, logs, traces
-
-Les **3 piliers** sont en place et réunis dans **Grafana** :
-
-| Pilier | Question | Outil | Collecte |
-|---|---|---|---|
-| Métriques | **Quoi ?** (débit, erreurs, mémoire JVM…) | Micrometer → **Prometheus** | *pull* : scraping de `/actuator/prometheus` toutes les 15 s |
-| Logs | **Pourquoi ?** (message d'erreur exact) | **Grafana Alloy** → **Loki** | *push* : Alloy lit les logs Docker de tous les containers |
-| Traces | **Où ?** (trajet de la requête) | Micrometer Tracing → **Zipkin** | *push* : spans envoyés par chaque service |
-
-```mermaid
-flowchart LR
-    S[Services Spring Boot] -->|/actuator/prometheus| P[Prometheus]
-    S -->|logs Docker| A[Grafana Alloy] --> L[Loki]
-    S -->|spans| Z[Zipkin]
-    P --> G[Grafana]
-    L --> G
-    G -. lien traceId .-> Z
-```
-
-- **Grafana as code** : les datasources (Prometheus, Loki) et les dashboards (JVM Micrometer + dashboard `TicketFlow`) sont **provisionnés** depuis `docker/grafana/`, donc disponibles dès le démarrage, sans configuration manuelle.
-- **Dashboard `TicketFlow`** (PromQL) : requêtes/seconde et erreurs 5xx/seconde par service, par exemple `sum by (application) (rate(http_server_requests_seconds_count{status=~"5.."}[1m]))`.
-- **Logs ↔ traces** : Grafana détecte le `traceId` dans chaque ligne de log Loki et affiche un lien **« Voir dans Zipkin »** qui ouvre la trace correspondante.
-- **Scénario de démo** : arrêter `user-service` → pic d'erreurs 5xx sur le dashboard, logs `CallNotPermittedException → fallback` dans Loki, trace de la requête dans Zipkin.
-
-Exemples de requêtes LogQL :
-```
-{container="ticket-service"} |= "Outbox"
-{container=~".*-service"} |= "WARN"
-```
-
-## 🧪 Tests d'intégration (Testcontainers)
-
-Les tests démarrent de **vraies dépendances** dans des containers Docker jetables : **MariaDB** et **Kafka** (`apache/kafka-native`). Spring Boot s'y connecte automatiquement grâce à `@ServiceConnection`. Pas de H2 ni de Kafka embarqué : les tests utilisent **les mêmes technologies qu'en production**.
-
-- Les appels vers les autres services (OpenFeign) sont **mockés** (`@MockitoBean`) : chaque service est testé isolément.
-- Les containers sont **partagés** entre toutes les classes de test (pattern singleton) pour des tests rapides.
-- L'asynchrone (relay Outbox, consumer Kafka) est vérifié avec **Awaitility**, sans `Thread.sleep`.
-
-| Service | Test | Garantie prouvée |
-|---|---|---|
-| ticket-service | Création d'un ticket | Ticket **et** événement `TICKET_CREATED` écrits dans la même transaction |
-| ticket-service | Utilisateur non `CLIENT` | Création refusée, rien n'est écrit en base |
-| ticket-service | Échec d'écriture de l'événement (`@MockitoSpyBean`) | **Rollback** du ticket : jamais de ticket sans événement (atomicité de l'Outbox) |
-| ticket-service | Relay Outbox | L'événement arrive dans le **vrai Kafka** (clé = `ticketId`) et `sent_at` est renseigné |
-| notification-service | Même événement reçu 2 fois | Une seule notification (**consumer idempotent**) |
-| notification-service | Doublon envoyé via Kafka | Idempotence vérifiée **de bout en bout**, en s'appuyant sur l'ordre garanti par partition |
+- Atomicité de l'Outbox : un échec d'écriture de l'événement annule la création du ticket.
+- Publication réelle vers Kafka par le relay, et verrouillage `SKIP LOCKED` sur MariaDB.
+- Idempotence du consumer de notifications, y compris de bout en bout via Kafka.
+- Matrice de priorité couverte par un test paramétré ; triage IA et fallback testés avec un LLM simulé.
 
 ```bash
-# Prérequis : Docker Desktop lancé
 cd ticket-service && ./mvnw test
 cd notification-service && ./mvnw test
 ```
 
-## 🔁 CI/CD (GitHub Actions)
+---
 
-Pipeline `.github/workflows/ci.yml`, déclenché à chaque push et pull request :
+## CI/CD et déploiement
 
-| Job | Rôle |
-|---|---|
-| `build` | Matrice des **7 services** compilés en parallèle (Java 21, cache Maven). Les tests d'intégration Testcontainers tournent pour `ticket-service` et `notification-service` (`mvn verify`) |
-| `docker` | Uniquement sur `main`, après `build` (`needs`) : construit et publie les **7 images** sur **GitHub Container Registry** (`ghcr.io/anasxaz/ticketflow-*`), taguées `latest` et avec le SHA du commit, avec cache des couches Docker |
+**GitHub Actions** (`.github/workflows/ci.yml`)
+- Build parallèle des 7 services Java (Java 21, cache Maven) et tests d'intégration.
+- Build de production du frontend Angular.
+- Sur `main`, après succès : publication de **8 images** sur GitHub Container Registry (`ghcr.io/anasxaz/ticketflow-*`), taguées `latest` et par SHA de commit.
 
-## ☸️ Déploiement Kubernetes
+**Kubernetes** (`k8s/`, manifests numérotés dans l'ordre de déploiement)
+- Infrastructure : MariaDB (volumes persistants), Kafka KRaft, Keycloak (realm importé), Camunda 8.
+- Services Spring (dont `ticket-service` en 2 replicas), Gateway et frontend exposés en `LoadBalancer`.
+- Observabilité : Zipkin, Prometheus, Grafana.
 
-Toute la plateforme (**18 pods**) se déploie sur Kubernetes à partir des images GHCR. Les manifests sont dans `k8s/`, numérotés dans l'ordre de déploiement.
+---
 
-| Fichiers | Contenu |
-|---|---|
-| `00` → `01` | Namespace `ticketflow`, Secret MariaDB (+ Secret `groq-secret` créé à la main, hors Git) |
-| `10` → `15` | Infra : 3 MariaDB (PVC, stratégie `Recreate`), Kafka KRaft, Keycloak (realm via ConfigMap), Camunda 8 (`Recreate`) |
-| `20` → `21` | Config Server, Eureka |
-| `30` → `34` | user, ticket (**1 replica**, voir [ADR-008](docs/adr/008-replica-unique-relay-outbox.md)), Gateway (`LoadBalancer`), notification, workflow |
-| `40` → `42` | Zipkin, Prometheus, Grafana (config et dashboards via ConfigMaps) |
+## Démarrage
 
-**Choix techniques :**
-- Les **Services K8s portent les mêmes noms** que dans Docker Compose : la config `*-docker.properties` du Config Server fonctionne **sans aucune modification**.
-- `EUREKA_INSTANCE_PREFERIPADDRESS=true` : les services s'enregistrent dans Eureka avec l'**IP du pod** (le nom d'un pod n'est pas résolvable par DNS).
-- **Probes** `startup` / `liveness` / `readiness` sur `/actuator/health/*` + **limites mémoire** sur chaque service.
-- `enableServiceLinks: false` pour Kafka et Camunda (évite que les variables `KAFKA_*` / `CAMUNDA_*` injectées par K8s soient lues comme de la config).
-- **Stratégie `Recreate`** pour les composants avec un disque (MariaDB, Camunda) : un rolling update démarrerait une 2ᵉ instance sur le même volume `ReadWriteOnce` (conflit de verrou). En production : **StatefulSet** ou base managée.
-- **Probes des bases assouplies** (`timeoutSeconds: 5`, `failureThreshold: 3`) : une probe trop stricte sous charge retirait la base du Service et faisait planter les services en cascade.
+### Kubernetes (Docker Desktop)
 
-**Vérifié :** load balancing entre 2 replicas de `ticket-service` (avant l'ADR-008), **self-healing** (pod supprimé → recréé automatiquement), **scaling** (`kubectl scale`), **rolling update** sans coupure, parcours BPMN complet sur le cluster.
+Prérequis : Docker Desktop avec Kubernetes activé, et une clé API Groq.
 
 ```bash
-# Prérequis : Docker Desktop avec Kubernetes activé (kubeadm)
 kubectl apply -f k8s/00-namespace.yml -f k8s/01-secrets.yml
-kubectl create secret generic groq-secret -n ticketflow --from-literal=api-key=<VOTRE_CLE_GROQ>
+kubectl create secret generic groq-secret -n ticketflow --from-literal=api-key=<CLE_GROQ>
 kubectl create configmap keycloak-realm -n ticketflow --from-file=docker/keycloak/
 kubectl create configmap prometheus-config -n ticketflow --from-file=docker/prometheus/prometheus.yml
 kubectl create configmap grafana-datasources -n ticketflow --from-file=docker/grafana/provisioning/datasources/
 kubectl create configmap grafana-dashboards-provider -n ticketflow --from-file=docker/grafana/provisioning/dashboards/
 kubectl create configmap grafana-dashboards -n ticketflow --from-file=docker/grafana/dashboards/
 
-kubectl apply -f k8s/10-user-db.yml -f k8s/11-ticket-db.yml -f k8s/12-kafka.yml -f k8s/13-keycloak.yml -f k8s/14-notification-db.yml -f k8s/15-camunda.yml
-kubectl apply -f k8s/20-config-server.yml -f k8s/21-discovery-server.yml   # attendre 1/1
-kubectl apply -f k8s/30-user-service.yml -f k8s/31-ticket-service.yml -f k8s/32-api-gateway.yml -f k8s/33-notification-service.yml -f k8s/34-workflow-service.yml
+kubectl apply -f k8s/10-user-db.yml -f k8s/11-ticket-db.yml -f k8s/12-kafka.yml \
+              -f k8s/13-keycloak.yml -f k8s/14-notification-db.yml -f k8s/15-camunda.yml
+kubectl apply -f k8s/20-config-server.yml -f k8s/21-discovery-server.yml   # attendre l'état Ready
+kubectl apply -f k8s/30-user-service.yml -f k8s/31-ticket-service.yml -f k8s/32-api-gateway.yml \
+              -f k8s/33-notification-service.yml -f k8s/34-workflow-service.yml -f k8s/35-frontend.yml
 kubectl apply -f k8s/40-zipkin.yml -f k8s/41-prometheus.yml -f k8s/42-grafana.yml
-
-kubectl get pods -n ticketflow -w
 ```
 
-Accès depuis le PC : Gateway `localhost:8087`, Keycloak `localhost:8180`, Operate `localhost:8088/operate`, Tasklist `localhost:8088/tasklist`, Zipkin `localhost:9411`, Prometheus `localhost:9090`, Grafana `localhost:3000`. Eureka : `kubectl port-forward svc/discovery-server 8761:8761 -n ticketflow`.
-
-## 🛠️ Stack
-
-Java 21 · Spring Boot 4 · Spring Cloud (Config Server, Eureka, Gateway, OpenFeign) · Spring Security (OAuth2 Resource Server) · Keycloak · **Camunda 8 (Zeebe, BPMN, Tasklist, Forms)** · **Spring AI 2.0 + Groq (LLM)** · **Resilience4j** · **Micrometer Tracing + Zipkin** · **Prometheus · Grafana · Loki · Grafana Alloy** · Spring Data JPA · Spring for Apache Kafka · Apache Kafka (KRaft) · MariaDB · Lombok · Docker · Docker Compose · **GitHub Actions · GHCR · Kubernetes** · **JUnit 5 · Testcontainers · Mockito · Awaitility**
-
-## 🚀 Lancer le projet
-
-**Prérequis :** Docker Desktop
+### Docker Compose (développement)
 
 ```bash
-git clone https://github.com/anasxaz/ticketflow.git
-cd ticketflow/docker
-docker compose up --build -d
+cd docker && docker compose up --build -d
+cd ../frontend && npm install && npm start      # proxy /api vers la Gateway
 ```
 
-⏳ Compter 1 à 2 minutes pour que tous les services s'enregistrent.
+### Accès
 
-| Interface | URL |
-|---|---|
-| API (via la Gateway) | http://localhost:8087 |
-| Dashboard Eureka | http://localhost:8761 |
-| Kafka UI | http://localhost:8090 |
-| Keycloak (admin / admin) | http://localhost:8180 |
-| Camunda Operate (demo / demo) | http://localhost:8088/operate |
-| Camunda Tasklist (demo / demo) | http://localhost:8088/tasklist |
-| Zipkin (traces) | http://localhost:9411 |
-| Grafana (admin / admin) | http://localhost:3000 |
-| Prometheus (cibles) | http://localhost:9090/targets |
-| Alloy (pipeline de logs) | http://localhost:12345 |
-| État du circuit breaker (health) | http://localhost:8082/actuator/health |
-| Config Server (ex.) | http://localhost:8888/ticket-service/docker |
-
-## 📡 Endpoints
-
-Toutes les requêtes passent par la Gateway (`localhost:8087`) avec un token JWT (voir 🔐 Sécurité).
-
-**Users**
-| Méthode | URL | Description |
+| Interface | URL | Identifiants |
 |---|---|---|
-| GET | `/api/users` | Lister les utilisateurs |
-| GET | `/api/users/{id}` | Détail d'un utilisateur (404 si inexistant) |
-| POST | `/api/users` | Créer un utilisateur (`CLIENT` ou `AGENT`) |
-| DELETE | `/api/users/{id}` | Supprimer un utilisateur |
+| Application | http://localhost:4200 | `youssef` / `youssef123` (client), `anas` / `anas123` (agent) |
+| API Gateway | http://localhost:8087 | JWT Keycloak |
+| Keycloak | http://localhost:8180 | `admin` / `admin` |
+| Camunda Operate / Tasklist | http://localhost:8088/operate, /tasklist | `demo` / `demo` |
+| Grafana / Prometheus / Zipkin | http://localhost:3000, :9090, :9411 | `admin` / `admin` (Grafana) |
 
-**Tickets**
-| Méthode | URL | Description |
-|---|---|---|
-| GET | `/api/tickets` | Lister les tickets |
-| GET | `/api/tickets/{id}` | Détail d'un ticket (404 si inexistant) |
-| POST | `/api/tickets` | Créer un ticket (statut `OPEN` auto, client déduit du token, **priorité calculée**) |
-| PATCH | `/api/tickets/{id}/status` | Changer le statut (`CLOSED` termine le workflow sur **Résolu**) |
-| PATCH | `/api/tickets/{id}/assign` | Assigner un agent (appelé par le workflow-service) |
-| PATCH | `/api/tickets/{id}/priority` | **Requalifier** la priorité (agent assigné, motif obligatoire) |
-| GET | `/api/tickets/{id}/priority-history` | Historique des requalifications |
-| PATCH | `/api/tickets/{id}/triage` | Appliquer le tri humain (appelé par le workflow-service) |
-| DELETE | `/api/tickets/{id}` | Supprimer un ticket |
+Les identifiants ci-dessus sont des comptes de démonstration.
 
-**Notifications**
-| Méthode | URL | Description |
-|---|---|---|
-| GET | `/api/notifications` | Notifications (les siennes pour un client, toutes pour un agent) |
+---
 
-**Exemples : créer un ticket** (token de `youssef`). Le client ne choisit **jamais** la priorité.
-```json
+## API
+
+Toutes les requêtes passent par la Gateway avec un JWT (`Authorization: Bearer <token>`).
+
+| Méthode | Endpoint | Rôle | Description |
+|---|---|---|---|
+| POST | `/api/tickets` | CLIENT | Créer un ticket (texte libre ou catégorie + blocage) |
+| GET | `/api/tickets/mine` | CLIENT | Tickets du client connecté |
+| GET | `/api/tickets`, `/api/tickets/{id}` | AGENT | Lister / consulter les tickets |
+| PATCH | `/api/tickets/{id}/priority` | AGENT assigné | Requalifier la priorité (motif obligatoire) |
+| GET | `/api/tickets/{id}/priority-history` | AGENT | Historique des requalifications |
+| PATCH | `/api/tickets/{id}/status` | AGENT | Changer le statut (`CLOSED` termine le processus) |
+| GET | `/api/notifications` | authentifié | Notifications (les siennes pour un client) |
+| GET / POST | `/api/users/**` | AGENT | Gestion des utilisateurs |
+
+```http
 POST /api/tickets
-{
-  "title": "Plus d'internet",
-  "description": "Depuis ce matin plus aucune connexion, je télétravaille"
-}
+{ "title": "Plus d'internet", "description": "Depuis ce matin plus aucune connexion, je télétravaille" }
 ```
-→ le LLM extrait `PANNE_TOTALE` + bloqué → **`CRITICAL`**, `triageSource: AI`
+Réponse : catégorie `PANNE_TOTALE`, client bloqué, priorité `CRITICAL`, `triageSource: AI`.
 
-```json
-POST /api/tickets
-{ "title": "Facture", "category": "FACTURATION", "blocked": false }
+---
+
+## Structure du dépôt
+
 ```
-→ formulaire, sans LLM → **`LOW`** (ou `MEDIUM` pour un client `ENTREPRISE`), `triageSource: FORM`
-
-**Exemple : requalifier** (token de l'agent assigné)
-```json
-PATCH /api/tickets/16/priority
-{ "priority": "CRITICAL", "reason": "Double prélèvement, client entreprise bloqué" }
+ticketflow/
+├── api-gateway/            Gateway (Spring Cloud Gateway, OAuth2 Resource Server)
+├── config-server/          Configuration centralisée
+├── discovery-server/       Eureka
+├── user-service/
+├── ticket-service/         Tickets, triage IA + règles, Outbox
+├── notification-service/
+├── workflow-service/       Workers Camunda, BPMN et formulaire de tri
+├── frontend/               Angular, nginx
+├── docker/                 Docker Compose, realm Keycloak, Prometheus, Grafana, Alloy
+├── k8s/                    Manifests Kubernetes
+├── docs/adr/               Architecture Decision Records
+└── .github/workflows/      Pipeline CI/CD
 ```
 
-**Erreurs gérées**
-| Cas | Réponse |
-|---|---|
-| Ni catégorie + bloqué, ni description | `400` |
-| Motif de requalification trop court / même priorité | `400` |
-| Requalification par un autre que l'agent assigné | `403` |
-| Pas de token / token invalide | `401` |
-| Rôle insuffisant | `403` |
-| Utilisateur du token sans profil en base | `403` |
-| Ressource introuvable | `404` |
-| user-service indisponible (circuit breaker / fallback) | `503` |
-| LLM indisponible | **pas d'erreur** : ticket créé en `MEDIUM`, puis tri humain |
+---
 
-## 🗺️ Roadmap
+## Limites connues
 
-- [x] **1. MVP** : User, Ticket, Gateway, Eureka, Docker Compose
-- [x] **2. Config Server + OpenFeign** : configuration centralisée, profil docker, validation du client
-- [x] **3. Kafka + Notification Service** : événements `ticket-events`, consumer idempotent
-- [x] **4. Transactional Outbox** : plus de *dual write*, événements garantis même si Kafka tombe
-- [x] **5. Sécurité Keycloak** : OAuth2 / JWT, rôles `CLIENT` / `AGENT`, identité tirée du token
-- [x] **6. Workflow Camunda 8** : BPMN, assignation automatique, escalade SLA (timer), résolution (message), Saga avec compensation
-- [x] **7. Résilience + Tracing** : circuit breaker Resilience4j avec fallback `503`, tracing distribué Micrometer + Zipkin
-- [x] **8. Observabilité** : métriques Prometheus, logs centralisés Loki + Alloy, dashboards Grafana provisionnés, lien logs → traces Zipkin
-- [x] **9. Tests d'intégration** : Testcontainers (MariaDB, Kafka), atomicité de l'Outbox, relay Kafka, idempotence du consumer
-- [x] **10. CI/CD + Kubernetes** : GitHub Actions (build, tests, images sur GHCR), déploiement complet sur Kubernetes (probes, replicas, self-healing, scaling)
-- [x] **11. Triage hybride + ADR** : priorité calculée (matrice ITIL + contrat client), SLA par priorité, requalification par l'agent avec historique, classification par LLM (Spring AI + Groq) avec seuil de confiance et fallback, tri humain dans Camunda Tasklist ; 8 ADR
-- [ ] 12. Front Angular minimal
+- La confiance déclarée par le LLM n'est pas calibrée ; elle devrait être mesurée sur des tickets déjà triés par des humains.
+- Après une requalification, le nouveau SLA repart du moment de la requalification et non de l'ouverture du ticket.
+- Le schéma de base est géré par `ddl-auto` ; des migrations versionnées (Flyway) seraient nécessaires en production.
+- Eureka est conservé sur Kubernetes pour garder la même configuration qu'avec Docker Compose ([ADR-006](docs/adr/006-eureka-sur-kubernetes.md)).
+- Les bases MariaDB tournent en `Deployment` avec stratégie `Recreate` ; un `StatefulSet` ou une base managée serait préférable en production.
 
-## ⚠️ Limites connues
+---
 
-- **Doublons du relay Outbox avec plusieurs replicas** : `ticket-service` tourne avec 1 replica en attendant `SKIP LOCKED` et un workflow idempotent ([ADR-008](docs/adr/008-replica-unique-relay-outbox.md)).
-- **Confiance du LLM non calibrée** : le score déclaré par le modèle est optimiste ; il faudrait le calibrer sur des tickets déjà triés par des humains.
-- **Schéma de base géré par `ddl-auto`** : à remplacer par des migrations versionnées (Flyway ou Liquibase).
-- **Eureka conservé sur Kubernetes** pour garder la même configuration qu'avec Docker Compose ([ADR-006](docs/adr/006-eureka-sur-kubernetes.md)).
+## Auteur
 
-## 👤 Auteur
+**Anas Benamara**, élève ingénieur à l'ENSIAS (Data & Software Sciences)
+[GitHub](https://github.com/anasxaz) · [LinkedIn](https://www.linkedin.com/in/anas-benamara)
 
-**Anas Benamara** · [GitHub](https://github.com/anasxaz) · [LinkedIn](https://www.linkedin.com/in/anas-benamara)
+## Licence
+
+Distribué sous licence MIT. Voir [LICENSE](LICENSE).

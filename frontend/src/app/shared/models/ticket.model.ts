@@ -33,3 +33,23 @@ export interface RequalifyRequest {
   priority: Priority;
   reason: string;
 }
+
+/** Une ligne de l'historique des requalifications (audit). */
+export interface PriorityChange {
+  id: number;
+  ticketId: number;
+  oldPriority: Priority;
+  newPriority: Priority;
+  reason: string;
+  changedBy: string;
+  changedAt: string;
+}
+
+/** Profil retourne par user-service. */
+export interface UserProfile {
+  id: number;
+  name: string;
+  email: string;
+  role: 'CLIENT' | 'AGENT';
+  customerType: string | null;
+}

@@ -28,3 +28,6 @@ export const TRIAGE_LABELS: Record<TriageSource, string> = {
   FALLBACK: 'En cours de qualification',
   HUMAN: 'Qualifié par notre équipe',
 };
+
+/** Ordre de tri : la plus urgente d'abord. */
+export const PRIORITY_ORDER: Record<Priority, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };

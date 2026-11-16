@@ -25,4 +25,8 @@ export class AuthService {
   logout(): void {
     keycloak.logout({ redirectUri: window.location.origin });
   }
+  
+  get email(): string {
+    return (keycloak.tokenParsed?.['email'] as string) ?? '';
+  }
 }

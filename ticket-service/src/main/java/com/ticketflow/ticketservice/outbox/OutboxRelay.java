@@ -1,14 +1,17 @@
 package com.ticketflow.ticketservice.outbox;
 
-import com.ticketflow.ticketservice.config.KafkaTopicConfig;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
+import java.util.concurrent.TimeUnit;
+
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
+import com.ticketflow.ticketservice.config.KafkaTopicConfig;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
@@ -17,9 +20,10 @@ public class OutboxRelay {
     private final OutboxEventRepository outboxRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
 
-    @Scheduled(fixedDelay = 2000)   // toutes les 2 s après la fin du tour précédent
+    @Scheduled(fixedDelay = 2000) // toutes les 2 s après la fin du tour précédent
+    @Transactional 
     public void relay() {
-        for (OutboxEvent event : outboxRepository.findTop100BySentAtIsNullOrderByCreatedAtAsc()) {
+        for (OutboxEvent event : outboxRepository.lockNextBatch()) {
             try {
                 kafkaTemplate.send(KafkaTopicConfig.TICKET_EVENTS,
                                 event.getAggregateId().toString(), event.getPayload())

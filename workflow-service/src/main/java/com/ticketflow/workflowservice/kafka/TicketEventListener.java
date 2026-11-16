@@ -1,17 +1,19 @@
 package com.ticketflow.workflowservice.kafka;
 
-import com.ticketflow.workflowservice.config.SlaProperties;
-import com.ticketflow.workflowservice.event.TicketEvent;
-import io.camunda.client.CamundaClient;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.stereotype.Component;
-import tools.jackson.databind.json.JsonMapper;
-
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+
+import com.ticketflow.workflowservice.config.SlaProperties;
+import com.ticketflow.workflowservice.event.TicketEvent;
+
+import io.camunda.client.CamundaClient;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import tools.jackson.databind.json.JsonMapper;
 
 @Slf4j
 @Component
@@ -47,20 +49,24 @@ public class TicketEventListener {
         variables.put("ticketId", event.ticketId());
         variables.put("clientId", event.clientId());
         variables.put("title", event.title());
-        variables.put("description", event.description() != null ? event.description() : "");  // 👈 lu par l'agent de tri
+        variables.put("description", event.description() != null ? event.description() : "");  // lu par l'agent de tri
         variables.put("priority", priority);
         variables.put("slaDuration", slaDuration);
-        variables.put("needsReview", Boolean.TRUE.equals(event.needsReview()));                 // 👈 lu par le BPMN
+        variables.put("needsReview", Boolean.TRUE.equals(event.needsReview()));                 // lu par le BPMN
 
-        var instance = camundaClient.newCreateInstanceCommand()
-                .bpmnProcessId("ticket-lifecycle")
-                .latestVersion()
+                // Demarrage par MESSAGE : une seule instance active par ticket (correlationKey),
+        // TTL 0 : un doublon recu pendant que l'instance tourne est simplement ignore.
+        camundaClient.newPublishMessageCommand()
+                .messageName("ticket-created")
+                .correlationKey(String.valueOf(event.ticketId()))
+                .messageId(event.eventId())
+                .timeToLive(Duration.ZERO)
                 .variables(variables)
                 .send()
                 .join();
 
-        log.info("Process started for ticket {} (priority {}, SLA {}, needsReview {}, instance {})",
-                event.ticketId(), priority, slaDuration, event.needsReview(), instance.getProcessInstanceKey());
+        log.info("Process requested for ticket {} (priority {}, SLA {}, needsReview {})",
+                event.ticketId(), priority, slaDuration, event.needsReview());
     }
 
     private void resolve(TicketEvent event) {

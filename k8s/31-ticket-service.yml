@@ -4,7 +4,7 @@ metadata:
   name: ticket-service
   namespace: ticketflow
 spec:
-  replicas: 1  # il était 2 instances pour que la Gateway répartir la charge si je me rappelle via un Load Balancer
+  replicas: 2  # 2 instances pour que la Gateway répartir la charge si je me rappelle via un Load Balancer. relay Outbox exclusif (SKIP LOCKED) + workflow idempotent : doublons corriges
   selector:
     matchLabels: { app: ticket-service }
   template:

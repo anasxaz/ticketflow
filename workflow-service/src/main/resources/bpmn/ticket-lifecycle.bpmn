@@ -16,6 +16,7 @@
 
     <bpmn:startEvent id="StartEvent_TicketCreated" name="Ticket créé">
       <bpmn:outgoing>Flow_ToGateway</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageDef_TicketCreated" messageRef="Message_TicketCreated" />
     </bpmn:startEvent>
 
     <!-- 11.5 : tri humain si le LLM n'etait pas sur (ou en panne) -->
@@ -86,7 +87,7 @@
       <bpmn:messageEventDefinition id="MessageDef_PriorityChanged" messageRef="Message_PriorityChanged" />
     </bpmn:boundaryEvent>
 
-    <bpmn:boundaryEvent id="Timer_SLA" name="SLA dépassé" attachedToRef="Task_WaitResolution">
+    <bpmn:boundaryEvent id="Timer_SLA" name="SLA dépassé" cancelActivity="false" attachedToRef="Task_WaitResolution">
       <bpmn:outgoing>Flow_ToEscalate</bpmn:outgoing>
       <bpmn:timerEventDefinition id="TimerDef_SLA">
         <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">=slaDuration</bpmn:timeDuration>
@@ -125,6 +126,8 @@
     <bpmn:sequenceFlow id="Flow_Requalified" sourceRef="Event_PriorityChanged" targetRef="Task_WaitResolution" />
     <bpmn:sequenceFlow id="Flow_ToEscalated" sourceRef="Task_Escalate" targetRef="EndEvent_Escalated" />
   </bpmn:process>
+
+  <bpmn:message id="Message_TicketCreated" name="ticket-created" />
 
   <bpmn:message id="Message_TicketResolved" name="ticket-resolved">
     <bpmn:extensionElements>

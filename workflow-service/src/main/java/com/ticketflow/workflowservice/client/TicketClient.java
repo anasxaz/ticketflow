@@ -11,4 +11,7 @@ public interface TicketClient {
 
     @PatchMapping("/api/tickets/{id}/status")
     void updateStatus(@PathVariable("id") Long id, @RequestBody Map<String, String> body);
+
+    @PatchMapping("/api/tickets/{id}/triage")
+    Map<String, Object> triage(@PathVariable("id") Long id, @RequestBody Map<String, Object> body);
 }

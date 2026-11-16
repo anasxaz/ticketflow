@@ -8,7 +8,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 
 @ConfigurationPropertiesScan
 @SpringBootApplication
-@Deployment(resources = "classpath*:/bpmn/*.bpmn")
+@Deployment(resources = {"classpath:ticket-lifecycle.bpmn", "classpath:triage-form.form"})
 @EnableFeignClients
 public class WorkflowServiceApplication {
 	public static void main(String[] args) {

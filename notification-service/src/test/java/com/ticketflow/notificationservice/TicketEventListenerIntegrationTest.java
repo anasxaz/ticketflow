@@ -30,7 +30,7 @@ class TicketEventListenerIntegrationTest extends AbstractIntegrationTest {
 
     private String eventJson(String eventId, Long ticketId) {
         return jsonMapper.writeValueAsString(new TicketEvent(
-                eventId, "TICKET_CREATED", ticketId, 2L, "Pas de connexion", "OPEN", "HIGH", Instant.now()));
+                eventId, "TICKET_CREATED", ticketId, 2L, "Pas de connexion", "OPEN", "HIGH", "desc", false,  Instant.now()));
     }
 
     // Test 1 : on appelle le listener directement, 2 fois avec le MEME eventId

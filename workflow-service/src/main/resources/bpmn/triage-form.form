@@ -1,0 +1,35 @@
+{
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.9.0",
+  "exporter": { "name": "Camunda Modeler", "version": "5.40.0" },
+  "schemaVersion": 18,
+  "id": "triage-form",
+  "type": "default",
+  "components": [
+    {
+      "id": "Text_Header",
+      "type": "text",
+      "text": "## Trier le ticket #{{ticketId}}\n**{{title}}**\n\n{{description}}"
+    },
+    {
+      "id": "Field_Category",
+      "type": "select",
+      "key": "category",
+      "label": "Catégorie du problème",
+      "validate": { "required": true },
+      "values": [
+        { "label": "Panne totale (plus aucun service)", "value": "PANNE_TOTALE" },
+        { "label": "Service dégradé (lent, coupures)", "value": "SERVICE_DEGRADE" },
+        { "label": "Facturation", "value": "FACTURATION" },
+        { "label": "Demande d'information", "value": "DEMANDE_INFO" }
+      ]
+    },
+    {
+      "id": "Field_Blocked",
+      "type": "checkbox",
+      "key": "blocked",
+      "label": "Le client est bloqué dans son activité",
+      "defaultValue": false
+    }
+  ]
+}

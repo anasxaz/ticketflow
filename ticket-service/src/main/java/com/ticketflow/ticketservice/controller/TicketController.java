@@ -2,6 +2,7 @@ package com.ticketflow.ticketservice.controller;
 
 import com.ticketflow.ticketservice.dto.CreateTicketRequest;
 import com.ticketflow.ticketservice.dto.RequalifyRequest;
+import com.ticketflow.ticketservice.dto.TriageRequest;
 import com.ticketflow.ticketservice.model.PriorityChange;
 import com.ticketflow.ticketservice.model.Ticket;
 import com.ticketflow.ticketservice.model.TicketStatus;
@@ -74,6 +75,11 @@ public class TicketController {
     @GetMapping("/{id}/priority-history")
     public List<PriorityChange> priorityHistory(@PathVariable Long id) {
         return ticketService.priorityHistory(id);
+    }
+
+    @PatchMapping("/{id}/triage")
+    public Ticket triage(@PathVariable Long id, @Valid @RequestBody TriageRequest request) {
+        return ticketService.applyHumanTriage(id, request);
     }
 
 }

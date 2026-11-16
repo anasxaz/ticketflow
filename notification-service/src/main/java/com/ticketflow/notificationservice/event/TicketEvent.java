@@ -10,6 +10,8 @@ public record TicketEvent(
         String title,
         String status,
         String priority,
+        String description,
+        Boolean needsReview,
         Instant occurredAt
 ) {
 }

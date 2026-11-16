@@ -15,8 +15,38 @@
   <bpmn:process id="ticket-lifecycle" name="Cycle de vie d'un ticket" isExecutable="true">
 
     <bpmn:startEvent id="StartEvent_TicketCreated" name="Ticket créé">
-      <bpmn:outgoing>Flow_ToAssign</bpmn:outgoing>
+      <bpmn:outgoing>Flow_ToGateway</bpmn:outgoing>
     </bpmn:startEvent>
+
+    <!-- 11.5 : tri humain si le LLM n'etait pas sur (ou en panne) -->
+    <bpmn:exclusiveGateway id="Gateway_NeedsReview" name="Tri humain ?" default="Flow_NoReview">
+      <bpmn:incoming>Flow_ToGateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_NeedsReview</bpmn:outgoing>
+      <bpmn:outgoing>Flow_NoReview</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_Triage" name="Trier le ticket">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="triage-form" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_NeedsReview</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToApplyTriage</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_ApplyTriage" name="Appliquer le tri">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="apply-triage" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ToApplyTriage</bpmn:incoming>
+      <bpmn:outgoing>Flow_TriageDone</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Join">
+      <bpmn:incoming>Flow_NoReview</bpmn:incoming>
+      <bpmn:incoming>Flow_TriageDone</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToAssign</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
 
     <bpmn:serviceTask id="Task_AssignAgent" name="Assigner un agent">
       <bpmn:extensionElements>
@@ -79,7 +109,14 @@
       <bpmn:incoming>Flow_ToEscalated</bpmn:incoming>
     </bpmn:endEvent>
 
-    <bpmn:sequenceFlow id="Flow_ToAssign" sourceRef="StartEvent_TicketCreated" targetRef="Task_AssignAgent" />
+    <bpmn:sequenceFlow id="Flow_ToGateway" sourceRef="StartEvent_TicketCreated" targetRef="Gateway_NeedsReview" />
+    <bpmn:sequenceFlow id="Flow_NeedsReview" name="Oui" sourceRef="Gateway_NeedsReview" targetRef="Task_Triage">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=needsReview = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_NoReview" name="Non" sourceRef="Gateway_NeedsReview" targetRef="Gateway_Join" />
+    <bpmn:sequenceFlow id="Flow_ToApplyTriage" sourceRef="Task_Triage" targetRef="Task_ApplyTriage" />
+    <bpmn:sequenceFlow id="Flow_TriageDone" sourceRef="Task_ApplyTriage" targetRef="Gateway_Join" />
+    <bpmn:sequenceFlow id="Flow_ToAssign" sourceRef="Gateway_Join" targetRef="Task_AssignAgent" />
     <bpmn:sequenceFlow id="Flow_ToWait" sourceRef="Task_AssignAgent" targetRef="Task_WaitResolution" />
     <bpmn:sequenceFlow id="Flow_ToReject" sourceRef="Error_NoAgentBoundary" targetRef="Task_Reject" />
     <bpmn:sequenceFlow id="Flow_ToRejected" sourceRef="Task_Reject" targetRef="EndEvent_Rejected" />
@@ -106,78 +143,115 @@
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="ticket-lifecycle">
       <bpmndi:BPMNShape id="Shape_Start" bpmnElement="StartEvent_TicketCreated">
-        <dc:Bounds x="152" y="102" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="142" y="145" width="57" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="152" y="242" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="142" y="285" width="57" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Assign" bpmnElement="Task_AssignAgent">
-        <dc:Bounds x="250" y="80" width="120" height="80" />
+        <dc:Bounds x="640" y="220" width="120" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ErrorNoAgent" bpmnElement="Error_NoAgentBoundary">
-        <dc:Bounds x="292" y="142" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="222" y="175" width="62" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="682" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="612" y="315" width="62" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Reject" bpmnElement="Task_Reject">
-        <dc:Bounds x="250" y="240" width="120" height="80" />
+        <dc:Bounds x="640" y="380" width="120" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_EndRejected" bpmnElement="EndEvent_Rejected">
-        <dc:Bounds x="292" y="382" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="293" y="425" width="34" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="682" y="522" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="683" y="565" width="34" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Wait" bpmnElement="Task_WaitResolution">
-        <dc:Bounds x="430" y="80" width="120" height="80" />
+        <dc:Bounds x="820" y="220" width="120" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_PriorityChanged" bpmnElement="Event_PriorityChanged">
-        <dc:Bounds x="502" y="62" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="545" y="40" width="84" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="892" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="935" y="180" width="84" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_TimerSLA" bpmnElement="Timer_SLA">
-        <dc:Bounds x="472" y="142" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="512" y="175" width="66" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="862" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="902" y="315" width="66" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Escalate" bpmnElement="Task_Escalate">
-        <dc:Bounds x="430" y="240" width="120" height="80" />
+        <dc:Bounds x="820" y="380" width="120" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_EndResolved" bpmnElement="EndEvent_Resolved">
-        <dc:Bounds x="622" y="102" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="622" y="145" width="36" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="1012" y="242" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1012" y="285" width="36" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_EndEscalated" bpmnElement="EndEvent_Escalated">
-        <dc:Bounds x="622" y="262" width="36" height="36" />
-        <bpmndi:BPMNLabel><dc:Bounds x="616" y="305" width="48" height="14" /></bpmndi:BPMNLabel>
+        <dc:Bounds x="1012" y="402" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1006" y="445" width="48" height="14" /></bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_ToAssign" bpmnElement="Flow_ToAssign">
-        <di:waypoint x="188" y="120" />
-        <di:waypoint x="250" y="120" />
+        <di:waypoint x="615" y="260" />
+        <di:waypoint x="640" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToWait" bpmnElement="Flow_ToWait">
-        <di:waypoint x="370" y="120" />
-        <di:waypoint x="430" y="120" />
+        <di:waypoint x="760" y="260" />
+        <di:waypoint x="820" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToReject" bpmnElement="Flow_ToReject">
-        <di:waypoint x="310" y="178" />
-        <di:waypoint x="310" y="240" />
+        <di:waypoint x="700" y="318" />
+        <di:waypoint x="700" y="380" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToRejected" bpmnElement="Flow_ToRejected">
-        <di:waypoint x="310" y="320" />
-        <di:waypoint x="310" y="382" />
+        <di:waypoint x="700" y="460" />
+        <di:waypoint x="700" y="522" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToResolved" bpmnElement="Flow_ToResolved">
-        <di:waypoint x="550" y="120" />
-        <di:waypoint x="622" y="120" />
+        <di:waypoint x="940" y="260" />
+        <di:waypoint x="1012" y="260" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToEscalate" bpmnElement="Flow_ToEscalate">
-        <di:waypoint x="490" y="178" />
-        <di:waypoint x="490" y="240" />
+        <di:waypoint x="880" y="318" />
+        <di:waypoint x="880" y="380" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Requalified" bpmnElement="Flow_Requalified">
-        <di:waypoint x="520" y="62" />
-        <di:waypoint x="520" y="30" />
-        <di:waypoint x="460" y="30" />
-        <di:waypoint x="460" y="80" />
+        <di:waypoint x="910" y="202" />
+        <di:waypoint x="910" y="170" />
+        <di:waypoint x="850" y="170" />
+        <di:waypoint x="850" y="220" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_ToEscalated" bpmnElement="Flow_ToEscalated">
-        <di:waypoint x="550" y="280" />
-        <di:waypoint x="622" y="280" />
+        <di:waypoint x="940" y="420" />
+        <di:waypoint x="1012" y="420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_GatewayNeedsReview" bpmnElement="Gateway_NeedsReview" isMarkerVisible="true">
+        <dc:Bounds x="225" y="235" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="215" y="292" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Triage" bpmnElement="Task_Triage">
+        <dc:Bounds x="300" y="60" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ApplyTriage" bpmnElement="Task_ApplyTriage">
+        <dc:Bounds x="450" y="60" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_GatewayJoin" bpmnElement="Gateway_Join" isMarkerVisible="true">
+        <dc:Bounds x="565" y="235" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_ToGateway" bpmnElement="Flow_ToGateway">
+        <di:waypoint x="188" y="260" />
+        <di:waypoint x="225" y="260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_NeedsReview" bpmnElement="Flow_NeedsReview">
+        <di:waypoint x="250" y="235" />
+        <di:waypoint x="250" y="100" />
+        <di:waypoint x="300" y="100" />
+        <bpmndi:BPMNLabel><dc:Bounds x="256" y="160" width="20" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_NoReview" bpmnElement="Flow_NoReview">
+        <di:waypoint x="275" y="260" />
+        <di:waypoint x="565" y="260" />
+        <bpmndi:BPMNLabel><dc:Bounds x="410" y="242" width="22" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_ToApplyTriage" bpmnElement="Flow_ToApplyTriage">
+        <di:waypoint x="420" y="100" />
+        <di:waypoint x="450" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_TriageDone" bpmnElement="Flow_TriageDone">
+        <di:waypoint x="570" y="100" />
+        <di:waypoint x="590" y="100" />
+        <di:waypoint x="590" y="235" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

@@ -8,8 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
-import java.time.Duration;
 
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -19,7 +20,6 @@ public class TicketEventListener {
 
     private final CamundaClient camundaClient;
     private final JsonMapper jsonMapper;
-
     private final SlaProperties slaProperties;
 
     @KafkaListener(topics = "ticket-events")
@@ -32,7 +32,7 @@ public class TicketEventListener {
                 if ("CLOSED".equals(event.status())) resolve(event);
             }
             case "PRIORITY_CHANGED" -> requalify(event);
-            default -> { }   // on ignore les autres événements
+            default -> { }   // on ignore les autres événements (dont TICKET_TRIAGED)
         }
     }
 
@@ -42,20 +42,25 @@ public class TicketEventListener {
                 .getOrDefault(priority, Duration.ofMinutes(5))
                 .toString();                                                       // ex. "PT1M"
 
+        // HashMap (et pas Map.of) : Map.of refuse les valeurs null
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("ticketId", event.ticketId());
+        variables.put("clientId", event.clientId());
+        variables.put("title", event.title());
+        variables.put("description", event.description() != null ? event.description() : "");  // 👈 lu par l'agent de tri
+        variables.put("priority", priority);
+        variables.put("slaDuration", slaDuration);
+        variables.put("needsReview", Boolean.TRUE.equals(event.needsReview()));                 // 👈 lu par le BPMN
+
         var instance = camundaClient.newCreateInstanceCommand()
                 .bpmnProcessId("ticket-lifecycle")
                 .latestVersion()
-                .variables(Map.of(
-                        "ticketId", event.ticketId(),
-                        "clientId", event.clientId(),
-                        "title", event.title(),
-                        "priority", priority,          // visible dans Operate
-                        "slaDuration", slaDuration))
+                .variables(variables)
                 .send()
                 .join();
 
-        log.info("Process started for ticket {} (priority {}, SLA {}, instance {})",
-                event.ticketId(), priority, slaDuration, instance.getProcessInstanceKey());
+        log.info("Process started for ticket {} (priority {}, SLA {}, needsReview {}, instance {})",
+                event.ticketId(), priority, slaDuration, event.needsReview(), instance.getProcessInstanceKey());
     }
 
     private void resolve(TicketEvent event) {
@@ -78,7 +83,7 @@ public class TicketEventListener {
                 .correlationKey(String.valueOf(event.ticketId()))
                 .variables(Map.of(
                         "priority", event.priority(),
-                        "slaDuration", slaDuration))     // 👈 le nouveau SLA arrive AVEC le message
+                        "slaDuration", slaDuration))     // le nouveau SLA arrive AVEC le message
                 .send()
                 .join();
 

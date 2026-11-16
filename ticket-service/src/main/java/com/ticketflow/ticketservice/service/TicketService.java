@@ -4,6 +4,7 @@ import com.ticketflow.ticketservice.ai.TicketClassifier;
 import com.ticketflow.ticketservice.client.UserClient;
 import com.ticketflow.ticketservice.dto.CreateTicketRequest;
 import com.ticketflow.ticketservice.dto.RequalifyRequest;
+import com.ticketflow.ticketservice.dto.TriageRequest;
 import com.ticketflow.ticketservice.dto.UserResponse;
 import com.ticketflow.ticketservice.event.TicketEventPublisher;
 import com.ticketflow.ticketservice.model.*;
@@ -150,6 +151,21 @@ public class TicketService {
         ticket.setPriority(request.priority());
         Ticket saved = ticketRepository.save(ticket);
         eventPublisher.publish("PRIORITY_CHANGED", saved);
+        return saved;
+    }
+
+    /** Tri humain (appele par workflow-service apres la tache Camunda). */
+    @Transactional
+    public Ticket applyHumanTriage(Long id, TriageRequest request) {
+        Ticket ticket = findById(id);
+        UserResponse client = userClient.getUserById(ticket.getClientId());   // type de client (contrat)
+
+        applyRules(ticket, request.category(), request.blocked(), client.customerType());  // memes REGLES
+        ticket.setTriageSource(TriageSource.HUMAN);
+        ticket.setNeedsReview(false);
+
+        Ticket saved = ticketRepository.save(ticket);
+        eventPublisher.publish("TICKET_TRIAGED", saved);
         return saved;
     }
 

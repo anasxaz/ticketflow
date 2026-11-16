@@ -44,6 +44,7 @@ public class TicketEventPublisher {
                 UUID.randomUUID().toString(), type,
                 ticket.getId(), ticket.getClientId(), ticket.getTitle(),
                 ticket.getStatus().name(), ticket.getPriority().name(),   //priorite ajoutee
+                ticket.getDescription(), ticket.getNeedsReview(),
                 Instant.now());
 
         outboxRepository.save(OutboxEvent.builder()
